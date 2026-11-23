@@ -58,10 +58,9 @@ type Config struct {
 }
 
 // DefaultRegistryURL is the published extension catalog: the index.json
-// asset of the nexora-extensions repo's latest GitHub release, e.g.
-// "https://github.com/<owner>/nexora-extensions/releases/latest/download/index.json".
-// Empty until that repo is published; NEXORA_REGISTRY_URL overrides it.
-const DefaultRegistryURL = ""
+// asset of the nexora-extensions repo's latest GitHub release.
+// NEXORA_REGISTRY_URL overrides it.
+const DefaultRegistryURL = "https://github.com/Diwanshumidha/nexora-extensions/releases/latest/download/index.json"
 
 func Load() (*Config, error) {
 	base, err := os.UserConfigDir()
