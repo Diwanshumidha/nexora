@@ -1,0 +1,8 @@
+{
+  "name": "nexora-workspace",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:frontend": "pnpm --filter frontend build"
+  }
+}
