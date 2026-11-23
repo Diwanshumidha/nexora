@@ -482,3 +482,5 @@ input, select, textarea {
 .catalog-item .btn, .catalog-item .badge { flex: none; align-self: center; }
 .catalog-folder { margin: 8px 0; font-size: 13px; }
 .catalog-folder summary { cursor: pointer; color: var(--text-2); }
+.perf-noanim *, .perf-noanim *::after { animation: none !important; transition: none !important; }
+.perf-noshadow * { box-shadow: none !important; }

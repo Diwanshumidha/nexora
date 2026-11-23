@@ -33,6 +33,8 @@ async function measure(name: string, el: Element | null, ms = 3000) {
     avgMs: +avg.toFixed(1),
     p95Ms: +sorted[Math.floor(sorted.length * 0.95)].toFixed(1),
     slowFrames: deltas.filter((d) => d > 25).length,
+    stalls: deltas.filter((d) => d > 100).length,
+    maxMs: Math.round(sorted[sorted.length - 1]),
     frames: deltas.length,
   };
 }
@@ -51,6 +53,8 @@ export async function runPerfProbe(goTo: (page: "orbit" | "history") => void) {
     return;
   }
   if (location.hash.includes("nogrid")) document.body.classList.add("perf-nogrid");
+  if (location.hash.includes("noanim")) document.body.classList.add("perf-noanim");
+  if (location.hash.includes("noshadow")) document.body.classList.add("perf-noshadow");
   await wait(2500);
   goTo("history");
   await wait(1500);
@@ -63,5 +67,11 @@ export async function runPerfProbe(goTo: (page: "orbit" | "history") => void) {
   goTo("orbit");
   await wait(1500);
   results.push(await measure("orbit inspector", document.querySelector(".inspector")));
+  // The extension sidebar (longest panel): open the extension with most tools.
+  const nodes = [...document.querySelectorAll<HTMLElement>('.node[aria-label*=" extension,"]')];
+  const files = nodes.find((n) => n.getAttribute("aria-label")?.startsWith("Files")) ?? nodes[0];
+  files?.click();
+  await wait(6000); // let the panel's data and the extensions' startup settle
+  results.push(await measure("extension sidebar", document.querySelector(".inspector")));
   await Report(JSON.stringify({ variant: location.hash, ua: navigator.userAgent.slice(0, 60), results }));
 }
