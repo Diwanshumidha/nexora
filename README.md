@@ -57,7 +57,7 @@ Prerequisites: Go 1.26+, Node.js 22+, pnpm, and the `wails3` CLI
 (`go install github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0`).
 
 Extensions, their SDK and the catalog build live in a separate repo,
-[nexora-extensions](../nexora-extensions). Clone it next to this one:
+[nexora-extensions](https://github.com/Diwanshumidha/nexora-extensions). Clone it next to this one:
 
 ```
 projects/
@@ -228,4 +228,4 @@ and are cleared when an extension is uninstalled.
 ## Docs
 
 - [Architecture](docs/architecture.md)
-- [Writing an extension](../nexora-extensions/docs/writing-extensions.md) (nexora-extensions repo)
+- [Writing an extension](https://github.com/Diwanshumidha/nexora-extensions/blob/main/docs/writing-extensions.md) (nexora-extensions repo)
