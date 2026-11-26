@@ -840,13 +840,20 @@ function AddPanel({ refresh, onSelect }: Props) {
   );
 
   const checked = view?.fetchedAt && !view.fetchedAt.startsWith("0001") ? timeAgo(view.fetchedAt) : "";
+  const ago = checked === "now" ? "just now" : `${checked} ago`;
+  const notInstalled = (view?.items ?? []).filter((i) => i.state === "available").length;
+  const status = !view
+    ? loadError ? "catalog unavailable" : "checking the catalog…"
+    : !view.configured ? "no catalog configured"
+    : view.offline ? `offline, copy from ${ago}`
+    : loading ? "checking for updates…"
+    : `${notInstalled} to install, checked ${ago}`;
   return (
     <>
-      <div className="insp-kicker">DOCK AN EXTENSION</div>
-      <Head icon="plus" title="Add extension" tone="ext" />
+      <div className="insp-kicker">EXTENSION CATALOG</div>
+      <Head icon="puzzle" title="Add an extension" tone="ext" sub={<span aria-live="polite">{status}</span>} />
       <p className="insp-desc">
-        Extensions run in their own sandbox and can only reach what's listed under each one. Every download is
-        checked against the catalog before it's installed.
+        Each one runs sandboxed with only the access shown on it. Downloads are verified before they're installed.
       </p>
 
       {view && !view.configured && (
@@ -860,7 +867,7 @@ function AddPanel({ refresh, onSelect }: Props) {
       )}
       {view?.offline && (
         <div className="notice">
-          <span>Can't reach the catalog right now, so this is the copy from {checked === "now" ? "just now" : `${checked} ago`}. Installing needs a connection.</span>
+          <span>Can't reach the catalog, so this is the copy from {ago}. Installing needs a connection.</span>
           <button className="btn" disabled={loading} onClick={() => load(true)}>Retry</button>
         </div>
       )}
@@ -874,11 +881,11 @@ function AddPanel({ refresh, onSelect }: Props) {
             <Icon name="search" size={16} />
             <span className="sr-only">Search extensions</span>
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search extensions" />
+            <button type="button" className="search-action" aria-label="Check the catalog for updates"
+              title={checked ? `Checked ${ago}. Check again` : "Check again"} disabled={loading} onClick={() => load(true)}>
+              <span className={loading ? "spin" : ""}><Icon name="refresh" size={15} /></span>
+            </button>
           </label>
-          <button className="icon-btn" aria-label="Check the catalog again" title={checked ? `Checked ${checked === "now" ? "just now" : checked + " ago"}` : "Refresh"}
-            disabled={loading} onClick={() => load(true)}>
-            <span className={loading ? "spin" : ""}><Icon name="refresh" size={16} /></span>
-          </button>
         </div>
       )}
 

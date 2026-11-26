@@ -547,7 +547,13 @@ kbd { font: 500 10px var(--mono); padding: 2px 5px; border-radius: 4px; backgrou
   display: flex; gap: 8px; align-items: center;
   position: sticky; top: -24px; z-index: 1; margin: -8px 0; padding: 8px 0; background: var(--panel);
 }
-.catalog-bar .search { flex: 1; }
+.catalog-bar .search { flex: 1; padding-right: 4px; }
+.search-action {
+  width: 28px; height: 28px; flex: none; border: 0; border-radius: 7px; background: none; color: var(--muted);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.search-action:hover:not(:disabled) { color: var(--text); background: var(--surface-2); }
+.search-action:disabled { cursor: default; }
 .insp-label .btn { height: 26px; padding: 0 10px; font-size: 12px; }
 .add-ways { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .input-row { display: flex; gap: 6px; }
