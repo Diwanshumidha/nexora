@@ -201,17 +201,31 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      id-token: write # build provenance (Sigstore)
+      attestations: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/release-notes.md
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS.txt
+      # Proves each file was built by this workflow from this repository at
+      # this commit: gh attestation verify <file> --repo <owner>/<repo>.
+      # Free for public repositories, and works without a signing certificate.
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
       - name: Draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Install notes first, then GitHub's list of changes.
+          sed "s/<version>/${{ needs.version.outputs.version }}/g" .github/release-notes.md > notes.md
           gh release create "${{ github.ref_name }}" dist/* \
-            --repo "${{ github.repository }}" --draft --generate-notes \
+            --repo "${{ github.repository }}" --draft --generate-notes --notes-file notes.md \
             --title "Nexora ${{ needs.version.outputs.version }}"

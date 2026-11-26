@@ -10,24 +10,24 @@
     <Installer
         Path="nexora"
         Arguments=""
-        InstallLocation="C:\Program Files\My Company\My Product">
+        InstallLocation="C:\Program Files\Diwanshu Midha\Nexora">
     </Installer>
     <PackageInformation
-        PackageName="My Product"
-        PackageDisplayName="My Product"
-        PublisherName="CN=My Company"
-        PublisherDisplayName="My Company"
+        PackageName="Nexora"
+        PackageDisplayName="Nexora"
+        PublisherName="CN=Diwanshu Midha"
+        PublisherDisplayName="Diwanshu Midha"
         Version="0.1.0.0"
-        PackageDescription="A nexora application">
+        PackageDescription="Connect AI assistants to your computer">
         <Capabilities>
             <Capability Name="runFullTrust" />
             
         </Capabilities>
         <Applications>
             <Application
-                Id="com.example.nexora"
-                Description="A nexora application"
-                DisplayName="My Product"
+                Id="io.codedecoders.nexora"
+                Description="Connect AI assistants to your computer"
+                DisplayName="Nexora"
                 ExecutableName="nexora"
                 EntryPoint="Windows.FullTrustApplication">
                 
@@ -41,9 +41,9 @@
         </Dependencies>
         <Properties>
             <Framework>false</Framework>
-            <DisplayName>My Product</DisplayName>
-            <PublisherDisplayName>My Company</PublisherDisplayName>
-            <Description>A nexora application</Description>
+            <DisplayName>Nexora</DisplayName>
+            <PublisherDisplayName>Diwanshu Midha</PublisherDisplayName>
+            <Description>Connect AI assistants to your computer</Description>
             <Logo>Assets\AppIcon.png</Logo>
         </Properties>
     </PackageInformation>

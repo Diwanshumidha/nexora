@@ -16,6 +16,25 @@ await tools.word.createDocument({
 return rows.length
 ```
 
+## Installing
+
+Download the installer for your system from the
+[latest release](https://github.com/Diwanshumidha/nexora/releases/latest):
+a `setup.exe` for Windows, a `.dmg` for macOS, or an AppImage / `.deb` for
+Linux. The first-run setup downloads the Node.js runtime extensions need,
+so nothing else has to be installed.
+
+Builds are not yet signed with a paid certificate, so the first launch
+shows a warning:
+
+- **Windows:** "Windows protected your PC" → **More info** → **Run anyway**.
+- **macOS:** open Nexora once, then **System Settings → Privacy & Security
+  → Open Anyway**. Or run `xattr -dr com.apple.quarantine /Applications/nexora.app`.
+
+Every release file carries build provenance, so you can check it came from
+this repository's release workflow:
+`gh attestation verify <file> --repo Diwanshumidha/nexora`.
+
 ## Stack
 
 | Layer      | Tech                                                       |
@@ -364,3 +383,7 @@ and are cleared when an extension is uninstalled.
 
 - [Architecture](docs/architecture.md)
 - [Writing an extension](https://github.com/Diwanshumidha/nexora-extensions/blob/main/docs/writing-extensions.md) (nexora-extensions repo)
+
+## License
+
+[MIT](LICENSE) © 2026 Diwanshu Midha

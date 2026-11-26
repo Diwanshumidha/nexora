@@ -5,11 +5,11 @@ version: '3'
 
 # This information is used to generate the build assets.
 info:
-  companyName: "CodeDecoders" # The name of the company
+  companyName: "Diwanshu Midha" # The name of the company
   productName: "Nexora" # The name of the application
   productIdentifier: "io.codedecoders.nexora" # The unique product identifier
-  description: "Plugin-based personal AI assistant" # The application description
-  copyright: "(c) 2026, CodeDecoders" # Copyright text
+  description: "Connect AI assistants to your computer" # The application description
+  copyright: "(c) 2026, Diwanshu Midha" # Copyright text
   comments: "Nexora desktop" # Comments
   version: "0.1.0" # The application version
   # cfBundleIconName: "appicon" # The macOS icon name in Assets.car icon bundles (optional)
