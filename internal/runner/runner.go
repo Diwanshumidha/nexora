@@ -5,9 +5,11 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
+	"nexora/internal/cache"
 	"nexora/internal/codemode"
 	"nexora/internal/extension"
 	"nexora/internal/jobs"
@@ -21,21 +23,41 @@ type Runner struct {
 	queue *jobs.Queue
 	perms *permissions.Store
 	gate  *permissions.Gate
+	store *cache.Store
 }
 
-// New wires scripts to extensions through the permission gate.
-func New(mgr *extension.Manager, queue *jobs.Queue, perms *permissions.Store, approvalTimeout time.Duration) *Runner {
+// New wires scripts to extensions through the permission gate, and to
+// store (tools.store) directly: the cache is Nexora's own scratch space, so
+// it needs no approval. A nil store leaves tools.store out.
+func New(mgr *extension.Manager, queue *jobs.Queue, perms *permissions.Store, store *cache.Store, approvalTimeout time.Duration) *Runner {
 	gate := permissions.NewGate(mgr, mgr, perms, approvalTimeout)
 	return &Runner{
 		mgr: mgr,
 		// The queue enforces the overall runtime limit (jobs.Options.MaxRuntime),
 		// so a script's own timeout only needs to match it.
-		rt:    codemode.New(gate, codemode.Options{Timeout: 24 * time.Hour}),
+		rt:    codemode.New(builtins{next: gate, store: store}, codemode.Options{Timeout: 24 * time.Hour}),
 		queue: queue,
 		perms: perms,
 		gate:  gate,
+		store: store,
 	}
 }
+
+// builtins routes tools.store to the cache and everything else to next.
+type builtins struct {
+	next  codemode.ToolCaller
+	store *cache.Store
+}
+
+func (b builtins) CallTool(ctx context.Context, ns, tool string, args json.RawMessage) (json.RawMessage, error) {
+	if ns == cache.Namespace && b.store != nil {
+		return b.store.Call(tool, args)
+	}
+	return b.next.CallTool(ctx, ns, tool, args)
+}
+
+// Store is the cache behind tools.store (nil if disabled).
+func (r *Runner) Store() *cache.Store { return r.store }
 
 func (r *Runner) Gate() *permissions.Gate { return r.gate }
 
@@ -51,6 +73,9 @@ func (r *Runner) Queue() *jobs.Queue { return r.queue }
 // tell the user an approval is coming.
 func (r *Runner) API() string {
 	var api []codemode.APINamespace
+	if r.store != nil {
+		api = append(api, codemode.APINamespace{Name: cache.Namespace, Description: cache.Description, Tools: cache.Specs()})
+	}
 	for _, info := range r.running() {
 		var tools []protocol.ToolSpec
 		for _, t := range info.Tools {
@@ -111,6 +136,9 @@ func (r *Runner) Extensions() []string {
 
 func (r *Runner) namespaces() []codemode.Namespace {
 	var out []codemode.Namespace
+	if r.store != nil {
+		out = append(out, codemode.Namespace{Name: cache.Namespace, Tools: cache.ToolNames()})
+	}
 	for _, info := range r.running() {
 		ns := codemode.Namespace{Name: info.Manifest.Namespace}
 		for _, t := range info.Tools {

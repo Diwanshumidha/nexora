@@ -56,7 +56,9 @@ const instructions = `Nexora gives you access to the user's local extensions (sp
    Use Promise.all for independent calls; they run in parallel.
 3. If run_code returns status "queued" or "running", the script is still executing.
    Call get_job with the returned jobId until the status is "succeeded", "failed" or "cancelled".
-   Do not resubmit the same script while it is still running.`
+   Do not resubmit the same script while it is still running.
+4. tools.store (when listed by get_api) is a cache that keeps JSON between runs, e.g. to remember
+   what a previous run already processed. Entries expire and may be evicted, so handle a miss.`
 
 // RunCodeInput is the input of run_code.
 type RunCodeInput struct {

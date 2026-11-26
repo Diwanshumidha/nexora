@@ -41,7 +41,7 @@ func newGuardedEndpoint(t *testing.T, inlineWait time.Duration) (string, *nmcp.G
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := nmcp.NewServer(runner.New(mgr, queue, perms, time.Minute), nmcp.Options{InlineWait: inlineWait})
+	srv := nmcp.NewServer(runner.New(mgr, queue, perms, nil, time.Minute), nmcp.Options{InlineWait: inlineWait})
 	tokenFile := filepath.Join(dir, "mcp-token")
 	if err := os.WriteFile(tokenFile, []byte(token+"\n"), 0o600); err != nil {
 		t.Fatal(err)

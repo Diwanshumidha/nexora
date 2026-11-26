@@ -7,6 +7,7 @@ export * as Network from "../../bindings/nexora/internal/services/networkservice
 export * as History from "../../bindings/nexora/internal/services/historyservice";
 export * as Permissions from "../../bindings/nexora/internal/services/permissionsservice";
 export * as Catalog from "../../bindings/nexora/internal/services/catalogservice";
+export * as Storage from "../../bindings/nexora/internal/services/storageservice";
 export { Choice, Decision, Mode } from "../../bindings/nexora/internal/permissions/models";
 export type { Approval } from "../../bindings/nexora/internal/permissions/models";
 export type { Info as ExtensionInfo } from "../../bindings/nexora/internal/extension/models";
@@ -19,6 +20,8 @@ export type {
   CatalogItem,
   CatalogView,
   ConnectInfo,
+  StorageEntry,
+  StorageView,
   ExtensionPermissions,
   NetworkEndpoint,
   ToolPermission,

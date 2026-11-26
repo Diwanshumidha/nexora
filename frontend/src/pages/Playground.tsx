@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { RunDetail } from "../components/RunDetail";
+import { StoragePane } from "../components/StoragePane";
 import { CodeMode, Extensions, History, type Approval, type ExtensionInfo } from "../lib/api";
 import { useLive, useRun } from "../lib/useLive";
 import { Icon } from "../orbit/icons";
@@ -23,7 +24,8 @@ export default function PlaygroundPage({ draft, onDraftTaken, approvals, onRevie
   const [running, setRunning] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showApi, setShowApi] = useState(true);
+  // The pane beside the editor: the API, what scripts stored, or nothing.
+  const [side, setSide] = useState<"api" | "storage" | null>("api");
   const started = useRef(0);
   // Seed a sample only on the very first visit, not whenever the editor is cleared.
   const seeded = useRef(readDraft() !== null);
@@ -118,25 +120,35 @@ export default function PlaygroundPage({ draft, onDraftTaken, approvals, onRevie
         </div>
       </header>
 
-      <div className={`split ${showApi ? "" : "single"}`}>
+      <div className={`split ${side ? "" : "single"}`}>
         <div className="pane editor-pane">
           <div className="pane-head">
             <h3>Script</h3>
             <div className="pane-actions">
               <button className="link-btn" onClick={() => setCode(sampleFor(extensions))}>Load sample</button>
-              <button className="link-btn" onClick={() => setShowApi(!showApi)}>{showApi ? "Hide API" : "Show API"}</button>
+              {!side && <button className="link-btn" onClick={() => setSide("api")}>Show API</button>}
             </div>
           </div>
           <textarea spellCheck={false} value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={onKey}
             aria-label="Script" placeholder="return await tools.…" />
         </div>
-        {showApi && (
+        {side && (
           <div className="pane">
             <div className="pane-head">
-              <h3>API available to the AI</h3>
-              <span className="muted">{live.length} of {extensions.length} extensions running</span>
+              <div className="tabs" role="tablist" aria-label="Side panel">
+                <button role="tab" aria-selected={side === "api"} className={side === "api" ? "on" : ""} onClick={() => setSide("api")}>
+                  API
+                </button>
+                <button role="tab" aria-selected={side === "storage"} className={side === "storage" ? "on" : ""} onClick={() => setSide("storage")}>
+                  Storage
+                </button>
+              </div>
+              <span className="pane-actions">
+                {side === "api" && <span className="muted">{live.length} of {extensions.length} extensions running</span>}
+                <button className="link-btn" onClick={() => setSide(null)}>Hide</button>
+              </span>
             </div>
-            {types.trim() ? <pre className="api">{types}</pre> : (
+            {side === "storage" ? <StoragePane version={`${running}:${runId}`} /> : types.trim() ? <pre className="api">{types}</pre> : (
               <p className="hint">No extensions are running, so <code>tools</code> is empty. Add or start one on the Orbit page.</p>
             )}
           </div>

@@ -9,6 +9,7 @@ import * as HistoryService from "./historyservice.js";
 import * as NetworkService from "./networkservice.js";
 import * as PerfProbe from "./perfprobe.js";
 import * as PermissionsService from "./permissionsservice.js";
+import * as StorageService from "./storageservice.js";
 export {
     CatalogService,
     CodeModeService,
@@ -17,7 +18,8 @@ export {
     HistoryService,
     NetworkService,
     PerfProbe,
-    PermissionsService
+    PermissionsService,
+    StorageService
 };
 
 export type {
@@ -27,6 +29,8 @@ export type {
     ExtensionPermissions,
     NetworkEndpoint,
     SettingsView,
+    StorageEntry,
+    StorageView,
     Summary,
     ToolPermission
 } from "./models.js";

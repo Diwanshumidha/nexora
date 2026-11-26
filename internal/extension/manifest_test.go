@@ -1,6 +1,9 @@
 package extension
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestManifestValidate(t *testing.T) {
 	base := func() Manifest {
@@ -55,5 +58,17 @@ func TestJSToolName(t *testing.T) {
 		if got := jsToolName(in); got != want {
 			t.Errorf("jsToolName(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestReservedNamespace(t *testing.T) {
+	m := &Manifest{ID: "store", Runtime: RuntimeNode, Main: "dist/index.js"}
+	if err := m.Validate(); err == nil || !strings.Contains(err.Error(), "built into Nexora") {
+		t.Fatalf("Validate = %v", err)
+	}
+	// An MCP server named "Store" gets a namespace that doesn't clash.
+	man, _, err := NewMCPManifest(MCPServerSpec{Name: "Store", CommandLine: "store-mcp"})
+	if err != nil || man.Namespace != "storeServer" {
+		t.Fatalf("namespace = %q, err %v", man.Namespace, err)
 	}
 }

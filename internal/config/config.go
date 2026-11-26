@@ -45,6 +45,8 @@ type Config struct {
 	NetworkFile string
 	// HistoryFile records finished runs.
 	HistoryFile string
+	// CacheFile persists tools.store, Code Mode's cache between runs.
+	CacheFile string
 	// PermissionsFile holds per-extension modes and per-tool overrides.
 	PermissionsFile string
 	// ApprovalTimeout is how long a tool call waits for the user's OK.
@@ -79,6 +81,7 @@ func Load() (*Config, error) {
 		NetworkFile:          filepath.Join(data, "network.json"),
 		HistoryFile:          filepath.Join(data, "history.jsonl"),
 		PermissionsFile:      filepath.Join(data, "permissions.json"),
+		CacheFile:            filepath.Join(data, "cache.json"),
 		RegistryURL:          envOr("NEXORA_REGISTRY_URL", DefaultRegistryURL),
 	}
 	if cfg.MCPAddr == "off" {

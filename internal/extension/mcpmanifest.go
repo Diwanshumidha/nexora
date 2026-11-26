@@ -40,6 +40,9 @@ func NewMCPManifest(spec MCPServerSpec) (*Manifest, Values, error) {
 	}
 	if m.Namespace == "" {
 		m.Namespace = mcpNamespace(name)
+		if ReservedNamespaces[m.Namespace] {
+			m.Namespace += "Server" // "Store" -> tools.storeServer
+		}
 	}
 	cmdLine, rawURL := strings.TrimSpace(spec.CommandLine), strings.TrimSpace(spec.URL)
 	switch {

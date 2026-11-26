@@ -105,6 +105,9 @@ func LoadManifest(dir string) (*Manifest, error) {
 	return &m, nil
 }
 
+// ReservedNamespaces are tools.<name> entries Nexora provides itself.
+var ReservedNamespaces = map[string]bool{"store": true}
+
 // Validate applies defaults (namespace = id) and checks the manifest.
 func (m *Manifest) Validate() error {
 	if m.Namespace == "" {
@@ -121,6 +124,9 @@ func (m *Manifest) Validate() error {
 	}
 	if !identPattern.MatchString(m.Namespace) {
 		return fmt.Errorf("invalid namespace %q (must be a JS identifier)", m.Namespace)
+	}
+	if ReservedNamespaces[m.Namespace] {
+		return fmt.Errorf("namespace %q is built into Nexora; set a different \"namespace\" in %s", m.Namespace, ManifestFile)
 	}
 	seen := map[string]bool{}
 	for _, s := range m.Settings {

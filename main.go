@@ -16,6 +16,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
+	"nexora/internal/cache"
 	"nexora/internal/config"
 	"nexora/internal/extension"
 	"nexora/internal/history"
@@ -114,7 +115,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	run = runner.New(mgr, queue, perms, cfg.ApprovalTimeout)
+	store, err := cache.Open(cache.Options{Path: cfg.CacheFile})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer store.Close()
+	run = runner.New(mgr, queue, perms, store, cfg.ApprovalTimeout)
 
 	var (
 		gateway *network.Gateway
@@ -161,6 +167,7 @@ func main() {
 		application.NewService(services.NewPermissionsService(perms, run.Gate(), mgr)),
 		application.NewService(services.NewAskWindow(run.Gate(), logger)),
 		application.NewService(services.NewCodeModeService(run)),
+		application.NewService(services.NewStorageService(store)),
 		application.NewService(services.NewHistoryService(hist, run)),
 		application.NewService(services.NewConnectService(baseURL, connectGuard(guard, baseURL))),
 		application.NewService(services.NewNetworkService(gateway, tokenOf(guard))),

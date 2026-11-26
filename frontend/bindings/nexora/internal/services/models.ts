@@ -3,6 +3,9 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as cache$0 from "../cache/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as extension$0 from "../extension/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -106,6 +109,23 @@ export interface SettingsView {
     "specs": extension$0.SettingSpec[] | null;
     "values": { [_ in string]?: any } | null;
     "secretsSet": { [_ in string]?: boolean } | null;
+}
+
+/**
+ * StorageEntry is one cached key with a short preview of its value.
+ */
+export interface StorageEntry {
+    "key": string;
+    "size": number;
+    "preview": string;
+    "created": string;
+    "expiresAt": string;
+    "accessed": string;
+}
+
+export interface StorageView {
+    "stats": cache$0.Stats;
+    "entries": StorageEntry[] | null;
 }
 
 /**
