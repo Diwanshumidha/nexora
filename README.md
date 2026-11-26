@@ -76,6 +76,11 @@ wails3 build                   # production binary in bin/
 
 `NEXORA_EXTENSIONS_REPO` points the tasks and tests at a checkout elsewhere.
 
+The `Makefile` wraps these with shorter names (`make` lists them): `make dev`,
+`make test`, `make build`, `make check` (gofmt, vet, typecheck and Go tests),
+and `make preview`, which runs the app in your browser (server mode) with a
+throwaway profile in `.preview/`, so your real data is untouched.
+
 **Linux note:** Wails v3 targets GTK4/WebKitGTK 6.0 by default. On systems
 that only have WebKitGTK 4.1 (`webkit2gtk-4.1`), build with the `gtk3` tag:
 `EXTRA_TAGS=gtk3 wails3 task dev`. Use `go build -tags gtk3` / `go test -tags gtk3` for plain Go commands.
