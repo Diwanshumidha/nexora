@@ -196,7 +196,38 @@ progress notifications every 10 s while they wait. The HTTP transport is
 stateless, so a reconnect or a different proxy edge doesn't lose anything:
 all state is in the queue. Auth is a 256-bit token, sent either as a bearer
 header or as a secret path segment (`/mcp/<token>`) for clients that only
-accept a URL.
+accept a URL, or an OAuth access token.
+
+### OAuth
+
+`internal/mcp/oauth.go` is a small OAuth 2.1 authorization server for the
+endpoint itself, following the MCP authorization spec:
+
+- **Discovery.** A 401 on `/mcp` carries `WWW-Authenticate: Bearer
+  resource_metadata=".../.well-known/oauth-protected-resource"`. Protected
+  resource (RFC 9728) and authorization server (RFC 8414 and OIDC) metadata
+  are served under the MCP path (`/mcp/.well-known/...`), which every
+  provider forwards, and at the root well-known locations for `/mcp`. The
+  Tailscale provider also mounts the root locations for its path, since it
+  otherwise forwards only that path.
+- **Issuer = the URL the client used.** `Guard.baseURL` is the live
+  provider's public URL for requests arriving on its host, otherwise
+  `http://<host>/mcp`, so the same server is a valid issuer locally and
+  publicly.
+- **Registration.** Dynamic client registration (RFC 7591), rate limited
+  and capped; registrations that never connect are pruned after a day.
+  Redirect URIs must be https, loopback http (any port, RFC 8252) or a
+  private-use scheme. Public (`none`) and secret-based clients are supported.
+- **Consent in the app.** `/mcp/oauth/authorize` creates a consent request
+  with a pairing code and redirects the browser to a waiting page that polls
+  (meta refresh, no script). The ask window shows the same code, the client
+  name and the redirect host; the user approves there. Only then is a
+  one-time, 2-minute code issued. PKCE S256 is required.
+- **Tokens.** Opaque, 1 h access tokens and rotating refresh tokens (the
+  previous one stays valid for a minute so a lost response can be retried).
+  A connection idle for 30 days expires. Only SHA-256 hashes are persisted
+  in `mcp-oauth.json` (0600), so connections survive restarts. Revocation
+  works from the UI or RFC 7009 `/mcp/oauth/revoke`.
 
 ## Network layer
 

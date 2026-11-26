@@ -3,6 +3,7 @@ package extension_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -234,4 +236,38 @@ func pid(t *testing.T, mgr *extension.Manager) int {
 	}
 	must(t, json.Unmarshal(raw, &v))
 	return v.PID
+}
+
+// switchableNode stands in for the Node.js runtime manager.
+type switchableNode struct{ path atomic.Pointer[string] }
+
+func (n *switchableNode) Node() (string, error) {
+	if p := n.path.Load(); p != nil {
+		return *p, nil
+	}
+	return "", errors.New("Node.js is not available: extensions need Node.js")
+}
+func (n *switchableNode) BinDir() string { return "" }
+
+func TestWaitsForNodeRuntime(t *testing.T) {
+	mgr, src := newTestManager(t)
+	ctx := context.Background()
+	defer mgr.StopAll(ctx)
+	rt := &switchableNode{}
+	mgr.SetNodeRuntime(rt)
+
+	_, err := mgr.Install(src)
+	must(t, err)
+	if err := mgr.Start(ctx, "raw"); err == nil || !strings.Contains(err.Error(), "Node.js") {
+		t.Fatalf("start without node: %v", err)
+	}
+	if info, _ := mgr.Get("raw"); info.Status != extension.StatusError || !strings.Contains(info.Error, "needs Node.js") && !strings.Contains(info.Error, "need Node.js") {
+		t.Fatalf("info: %+v", info)
+	}
+
+	// Node arrives (e.g. the download finished): failed extensions start.
+	node := "node"
+	rt.path.Store(&node)
+	mgr.RetryNeedingNode(ctx)
+	waitFor(t, func() bool { info, _ := mgr.Get("raw"); return info.Status == extension.StatusRunning })
 }

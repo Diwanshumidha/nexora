@@ -25,10 +25,13 @@ import (
 	"nexora/internal/network"
 	"nexora/internal/network/cloudflare"
 	"nexora/internal/network/tailscale"
+	"nexora/internal/noderuntime"
 	"nexora/internal/permissions"
 	"nexora/internal/registry"
 	"nexora/internal/runner"
 	"nexora/internal/services"
+	"nexora/internal/updates"
+	"nexora/internal/version"
 )
 
 //go:embed all:frontend/dist
@@ -90,6 +93,16 @@ func main() {
 	})
 
 	mgr := extension.NewManager(cfg, logger)
+	// Resolved before extensions start; a download later retries the
+	// extensions that failed without it.
+	node := noderuntime.New(cfg.RuntimeDir, cfg.NodePath, cfg.NodeMirror, logger)
+	if s := node.Resolve(context.Background()); s.State != noderuntime.StateReady {
+		logger.Warn("no usable Node.js; JS extensions wait for the runtime", "state", s.State, "found", s.Found, "err", s.Error)
+	} else {
+		logger.Info("Node.js runtime", "version", s.Version, "source", s.Source, "path", s.Path)
+	}
+	mgr.SetNodeRuntime(node)
+	node.OnReady = func() { mgr.RetryNeedingNode(context.Background()) }
 	hist, err := history.Open(cfg.HistoryFile, 500)
 	if err != nil {
 		log.Fatal(err)
@@ -125,6 +138,7 @@ func main() {
 	var (
 		gateway *network.Gateway
 		guard   *mcp.Guard
+		oauth   *mcp.OAuth
 		baseURL string
 	)
 	if cfg.MCPAddr != "" {
@@ -132,6 +146,10 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		if oauth, err = mcp.OpenOAuth(cfg.MCPOAuthFile); err != nil {
+			log.Fatal(err)
+		}
+		guard.EnableOAuth(oauth)
 		srv := mcp.NewServer(run, mcp.Options{InlineWait: cfg.MCPInlineWait})
 		handler := mcp.AccessLog(mcp.NewHandler(srv, guard), guard, filepath.Join(cfg.DataDir, "mcp-access.log"))
 		httpSrv, err := mcp.Listen(cfg.MCPAddr, handler, logger)
@@ -156,20 +174,23 @@ func main() {
 			if err != nil {
 				log.Fatal(err)
 			}
-			guard.SetPublicHost(gateway.PublicHost)
+			guard.SetPublicURL(gateway.PublicURL)
 		}
 	}
 
 	// Services start in this order and stop in reverse.
 	for _, s := range []application.Service{
 		application.NewService(services.NewExtensionService(mgr, perms, logger)),
+		application.NewService(services.NewRuntimeService(node)),
+		application.NewService(services.NewSetupService(cfg.DataDir)),
+		application.NewService(services.NewUpdateService(updateChecker(cfg, logger))),
 		application.NewService(services.NewCatalogService(mgr, registry.New(cfg.RegistryURL), filepath.Join(cfg.DataDir, "catalog.json"), logger)),
 		application.NewService(services.NewPermissionsService(perms, run.Gate(), mgr)),
-		application.NewService(services.NewAskWindow(run.Gate(), logger)),
+		application.NewService(services.NewAskWindow(run.Gate(), connectOAuth(oauth, baseURL), logger)),
 		application.NewService(services.NewCodeModeService(run)),
 		application.NewService(services.NewStorageService(store)),
 		application.NewService(services.NewHistoryService(hist, run)),
-		application.NewService(services.NewConnectService(baseURL, connectGuard(guard, baseURL))),
+		application.NewService(services.NewConnectService(baseURL, connectGuard(guard, baseURL), connectOAuth(oauth, baseURL))),
 		application.NewService(services.NewNetworkService(gateway, tokenOf(guard))),
 	} {
 		app.RegisterService(s)
@@ -231,12 +252,29 @@ func main() {
 	}
 }
 
+// updateChecker checks GitHub releases unless NEXORA_UPDATE_URL is "off".
+func updateChecker(cfg *config.Config, log *slog.Logger) *updates.Checker {
+	if cfg.UpdateURL == "off" {
+		return nil
+	}
+	return updates.New(cfg.UpdateURL, version.Version, log)
+}
+
 // connectGuard returns the guard only if the endpoint is actually listening.
 func connectGuard(g *mcp.Guard, baseURL string) *mcp.Guard {
 	if baseURL == "" {
 		return nil
 	}
 	return g
+}
+
+// connectOAuth returns the authorization server only if the endpoint is
+// actually listening.
+func connectOAuth(o *mcp.OAuth, baseURL string) *mcp.OAuth {
+	if baseURL == "" {
+		return nil
+	}
+	return o
 }
 
 func tokenOf(g *mcp.Guard) func() string {

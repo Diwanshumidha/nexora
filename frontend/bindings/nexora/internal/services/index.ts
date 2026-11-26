@@ -9,7 +9,10 @@ import * as HistoryService from "./historyservice.js";
 import * as NetworkService from "./networkservice.js";
 import * as PerfProbe from "./perfprobe.js";
 import * as PermissionsService from "./permissionsservice.js";
+import * as RuntimeService from "./runtimeservice.js";
+import * as SetupService from "./setupservice.js";
 import * as StorageService from "./storageservice.js";
+import * as UpdateService from "./updateservice.js";
 export {
     CatalogService,
     CodeModeService,
@@ -19,7 +22,10 @@ export {
     NetworkService,
     PerfProbe,
     PermissionsService,
-    StorageService
+    RuntimeService,
+    SetupService,
+    StorageService,
+    UpdateService
 };
 
 export type {

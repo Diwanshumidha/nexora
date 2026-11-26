@@ -49,6 +49,16 @@ type Info struct {
 	Auth AuthState `json:"auth,omitempty"`
 }
 
+// NodeRuntime finds the node binary for JS extensions (see
+// internal/noderuntime).
+type NodeRuntime interface {
+	// Node returns the binary, or an error saying why there is none.
+	Node() (string, error)
+	// BinDir is a directory with node, npm and npx to put first on the PATH
+	// of local MCP servers, or "" to leave PATH alone.
+	BinDir() string
+}
+
 type entry struct {
 	// lifecycle serialises Start/Stop/Remove for this extension so two
 	// concurrent starts cannot spawn two processes.
@@ -73,6 +83,7 @@ type Manager struct {
 	oauth    *oauthStore
 	policy   SettingsPolicy
 	openURL  func(string) error // opens the browser to sign in
+	node     NodeRuntime        // nil: cfg.NodePath, else "node" on PATH
 
 	mu   sync.RWMutex
 	exts map[string]*entry // keyed by extension id
@@ -90,6 +101,53 @@ func NewManager(cfg *config.Config, log *slog.Logger) *Manager {
 		settings: &settingsStore{dir: settingsDir},
 		oauth:    &oauthStore{dir: filepath.Join(settingsDir, "oauth")},
 		policy:   SettingsPolicy{Protected: protected},
+	}
+}
+
+// SetNodeRuntime makes extensions use rt to find Node.js. Call it before
+// starting extensions.
+func (m *Manager) SetNodeRuntime(rt NodeRuntime) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.node = rt
+}
+
+func (m *Manager) nodePath() (string, error) {
+	m.mu.RLock()
+	rt := m.node
+	m.mu.RUnlock()
+	if rt != nil {
+		return rt.Node()
+	}
+	if m.cfg.NodePath != "" {
+		return m.cfg.NodePath, nil
+	}
+	return "node", nil
+}
+
+func (m *Manager) nodeBinDir() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.node == nil {
+		return ""
+	}
+	return m.node.BinDir()
+}
+
+// RetryNeedingNode starts the extensions that failed and may have failed
+// for lack of Node.js: JS extensions and local MCP servers. Call it once a
+// runtime becomes available.
+func (m *Manager) RetryNeedingNode(ctx context.Context) {
+	for _, info := range m.List() {
+		man := info.Manifest
+		if info.Status != StatusError || (man.Runtime != RuntimeNode && man.Command == "") {
+			continue
+		}
+		go func() {
+			if err := m.Start(ctx, man.ID); err != nil {
+				m.log.Warn("extension still failing", "id", man.ID, "err", err)
+			}
+		}()
 	}
 }
 
@@ -278,7 +336,7 @@ func (m *Manager) startLocked(ctx context.Context, e *entry, interactive bool) e
 		openURL := m.openURL
 		m.mu.RUnlock()
 		mc, tools, err = connectMCP(ctx, man, mcpOptions{
-			Dir: dir, DataDir: dataDir, Specs: man.Settings, Values: values,
+			Dir: dir, DataDir: dataDir, Specs: man.Settings, Values: values, PathPrefix: m.nodeBinDir(),
 			OnToolsChanged: func(tools []protocol.ToolSpec) { m.setTools(e, mc, tools) },
 			OAuth: &oauthOptions{
 				ID: id, Store: m.oauth, Interactive: interactive, OpenURL: openURL,
@@ -308,9 +366,14 @@ func (m *Manager) startLocked(ctx context.Context, e *entry, interactive bool) e
 		}
 		m.mu.Unlock()
 	default:
+		nodePath, err := m.nodePath()
+		if err != nil {
+			m.setError(e, err)
+			return err
+		}
 		grantRead, grantWrite := grantedFolders(man.Settings, values)
 		proc, err := spawn(man, spawnOptions{
-			Dir: dir, DataDir: dataDir, NodePath: m.cfg.NodePath,
+			Dir: dir, DataDir: dataDir, NodePath: nodePath,
 			GrantRead: grantRead, GrantWrite: grantWrite,
 		}, m.log)
 		if err != nil {

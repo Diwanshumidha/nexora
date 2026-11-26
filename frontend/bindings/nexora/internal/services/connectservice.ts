@@ -19,8 +19,38 @@ import * as mcp$0 from "../mcp/models.js";
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+/**
+ * AnswerConnection approves or denies a sign-in. Like tool approvals, it is
+ * answered only in the app, where the matching code is visible.
+ */
+export function AnswerConnection(id: string, allow: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1905366416, id, allow);
+}
+
+/**
+ * ConnectionRequests lists AI clients waiting for the user to approve their
+ * sign-in (OAuth), oldest first.
+ */
+export function ConnectionRequests(): $CancellablePromise<mcp$0.ConsentRequest[] | null> {
+    return $Call.ByID(1570786364);
+}
+
+/**
+ * Connections lists AI clients signed in with OAuth.
+ */
+export function Connections(): $CancellablePromise<mcp$0.Connection[] | null> {
+    return $Call.ByID(938469339);
+}
+
 export function Info(): $CancellablePromise<$models.ConnectInfo> {
     return $Call.ByID(3422846542);
+}
+
+/**
+ * RevokeConnection signs a client out; it must be approved again.
+ */
+export function RevokeConnection(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1791661644, id);
 }
 
 /**

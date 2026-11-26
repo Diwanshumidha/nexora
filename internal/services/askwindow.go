@@ -8,6 +8,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 
+	"nexora/internal/mcp"
 	"nexora/internal/permissions"
 )
 
@@ -15,29 +16,34 @@ import (
 // matched by a rule, e.g. Hyprland: windowrule = float, title:^(Nexora · Approval needed)$
 const AskTitle = "Nexora · Approval needed"
 
-// AskWindow shows a small, separate approval window whenever a tool call is
-// waiting for the user, and closes it when nothing is pending.
+// AskWindow shows a small, separate approval window whenever a tool call or
+// an AI client's sign-in is waiting for the user, and closes it when nothing
+// is pending.
 //
 // The window is created fresh for each burst of requests rather than
 // hidden and re-shown: a newly mapped window opens on the workspace the
 // user is currently on (Linux), and is created always-on-top and focused
 // (Windows, macOS).
 type AskWindow struct {
-	gate *permissions.Gate
-	log  *slog.Logger
+	gate  *permissions.Gate
+	oauth *mcp.OAuth // nil when the MCP endpoint is disabled
+	log   *slog.Logger
 
 	mu       sync.Mutex
 	win      *application.WebviewWindow
 	lastSeen int // pending count at the last sync, to raise only on new requests
 }
 
-func NewAskWindow(gate *permissions.Gate, log *slog.Logger) *AskWindow {
-	return &AskWindow{gate: gate, log: log}
+func NewAskWindow(gate *permissions.Gate, oauth *mcp.OAuth, log *slog.Logger) *AskWindow {
+	return &AskWindow{gate: gate, oauth: oauth, log: log}
 }
 
 // ServiceStartup subscribes to approval changes.
 func (a *AskWindow) ServiceStartup(context.Context, application.ServiceOptions) error {
 	a.gate.OnChange = func([]permissions.Approval) { a.sync() }
+	if a.oauth != nil {
+		a.oauth.OnChange = a.sync
+	}
 	return nil
 }
 
@@ -50,6 +56,9 @@ func (a *AskWindow) sync() {
 		return
 	}
 	n := len(a.gate.Pending())
+	if a.oauth != nil {
+		n += len(a.oauth.Pending())
+	}
 
 	a.mu.Lock()
 	grew := n > a.lastSeen

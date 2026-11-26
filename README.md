@@ -81,6 +81,19 @@ The `Makefile` wraps these with shorter names (`make` lists them): `make dev`,
 and `make preview`, which runs the app in your browser (server mode) with a
 throwaway profile in `.preview/`, so your real data is untouched.
 
+### Node.js for extensions
+
+Users don't need Node.js installed. Like VS Code, Nexora runs extensions on a
+Node.js it manages: the first-run setup screen offers a one-time download of
+a pinned LTS release (`noderuntime.Version`, about 60 MB from nodejs.org),
+verified against checksums built into the app and kept in
+`~/.config/nexora/runtime/`. Lookup order: `NEXORA_NODE`, then the managed
+runtime, then `node` on PATH if it is 22.13 or newer (extensions run under the
+`--permission` model, which older versions reject). Without a usable Node,
+JS extensions wait with a clear error and start by themselves once the
+download finishes. The managed runtime's `bin` folder is also put first on
+the PATH of local MCP servers, so `npx`-based servers work too.
+
 **Linux note:** Wails v3 targets GTK4/WebKitGTK 6.0 by default. On systems
 that only have WebKitGTK 4.1 (`webkit2gtk-4.1`), build with the `gtk3` tag:
 `EXTRA_TAGS=gtk3 wails3 task dev`. Use `go build -tags gtk3` / `go test -tags gtk3` for plain Go commands.
@@ -91,7 +104,9 @@ that only have WebKitGTK 4.1 (`webkit2gtk-4.1`), build with the `gtk3` tag:
 | ----------------------- | --------------------------------------------------------- |
 | `NEXORA_DEV_EXTENSIONS` | Extra folders (`:`-separated) scanned for extensions      |
 | `NEXORA_REGISTRY_URL`   | Extension catalog (`index.json`) the **+** panel installs from |
-| `NEXORA_NODE`           | Node.js binary used to run extensions (default `node`)    |
+| `NEXORA_NODE`           | Force the Node.js binary used to run extensions (default: the managed runtime, else `node` on PATH if 22.13+) |
+| `NEXORA_UPDATE_URL`     | Release API checked for updates (default: this repo's latest GitHub release; `off` disables) |
+| `NEXORA_NODE_MIRROR`    | Where the managed Node.js is downloaded from (default `https://nodejs.org/dist`; checksums still apply) |
 | `NEXORA_WORKERS`        | Code-mode jobs executed concurrently (default `4`)        |
 | `NEXORA_MAX_QUEUED`     | Jobs allowed to wait for a worker (default `100`)         |
 | `NEXORA_JOB_TIMEOUT`    | Max runtime of one job (default `15m`)                    |
@@ -111,14 +126,39 @@ cloud, so they need a public URL. Pick one built-in network provider on
 
 | Provider   | How                                             | URL                                           |
 | ---------- | ----------------------------------------------- | --------------------------------------------- |
-| Tailscale  | `funnel` (public) or `tailnet` (your devices)   | `https://<machine>.<tailnet>.ts.net:8443/nexora/<token>` |
+| Tailscale  | `funnel` (public) or `tailnet` (your devices)   | `https://<machine>.<tailnet>.ts.net[:<port>]/nexora/<token>` |
 | Cloudflare | `cloudflared` quick tunnel                      | `https://<random>.trycloudflare.com/mcp/<token>` |
+
+The Tailscale port is the provider's *Port* setting (8443 by default; Funnel
+also allows 443 and 10000). On 443 the URL has no port at all, e.g.
+`https://laptop.tail1234.ts.net/nexora`. The exact URL is always shown on the
+provider's panel, so copy it from there.
 
 A tailnet `100.x` address is not reachable from ChatGPT's servers, so use
 Funnel mode for hosted AIs. The Tailscale provider talks to `tailscaled`
 directly (no CLI) and only mounts its own path. It refuses to funnel a port
 that already serves your other, private services. If `tailscaled` denies
 access, allow your user once with `sudo tailscale set --operator=$USER`.
+
+### Signing in with OAuth
+
+Clients that support MCP's OAuth sign-in (claude.ai and ChatGPT connectors,
+Claude Code, Cursor, ...) don't need the token. Give them the URL without it:
+
+| Where          | URL                                               |
+| -------------- | ------------------------------------------------- |
+| This machine   | `http://127.0.0.1:7377/mcp`                       |
+| Tailscale      | `https://<machine>.<tailnet>.ts.net[:<port>]/nexora` |
+| Cloudflare     | `https://<random>.trycloudflare.com/mcp`          |
+
+For example `claude mcp add --transport http nexora http://127.0.0.1:7377/mcp`,
+or *Add custom connector* on claude.ai with the public URL. The client
+registers itself and opens a browser page showing a short code; Nexora pops
+up an approval window with the same code. Approve it only if the codes match.
+Approved clients are listed under *Signed-in apps* in the core panel, where
+they can be signed out. Access tokens last an hour and are refreshed
+automatically; a connection unused for 30 days has to sign in again. Only
+token hashes are stored (`~/.config/nexora/mcp-oauth.json`).
 
 `run_code` returns the result in the same call if the script finishes within
 `NEXORA_MCP_INLINE_WAIT`. Otherwise it returns a `jobId`, and the AI calls
@@ -137,6 +177,38 @@ Nexora behaves like Discord: one process per user, one main window.
   starting a second copy.
 - `nexora --background` starts without a window (for launching at login).
 - `nexora --quit` stops the running instance, e.g. on desktops without a tray.
+- **Start at login** (offered in the first-run setup, switchable in the core
+  panel) registers `nexora --background` for the current user: an XDG
+  autostart entry on Linux, a LaunchAgent on macOS, a `Run` key on Windows.
+- **Updates:** Nexora checks the latest GitHub release shortly after launch
+  and every 12 hours, and shows a banner when a newer version is out (it
+  never installs anything itself). `NEXORA_UPDATE_URL=off` turns this off.
+
+## Releasing
+
+The version lives in `internal/version` and the packaging files;
+`scripts/set-version.sh 0.2.0` updates all of them. To release, push a tag:
+
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+`.github/workflows/release.yml` stamps the tag's version into the build,
+builds an AppImage and a `.deb` (Linux), a universal `.dmg` (macOS) and a
+per-user NSIS installer (Windows), and attaches them with `SHA256SUMS.txt` to
+a **draft** release. Publish the draft to make the in-app update check offer
+it. *Run workflow* on the Release action builds a version without releasing.
+
+Signing switches on when these repository secrets exist (otherwise builds
+are unsigned: macOS Gatekeeper blocks them and Windows SmartScreen warns):
+
+| Platform | Secrets |
+| -------- | ------- |
+| macOS    | `APPLE_CERTIFICATE` (base64 `.p12` of a *Developer ID Application* certificate), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`; for notarization also `APPLE_ID`, `APPLE_APP_PASSWORD` (app-specific password), `APPLE_TEAM_ID` |
+| Windows  | `WINDOWS_CERTIFICATE` (base64 `.pfx` code-signing certificate), `WINDOWS_CERTIFICATE_PASSWORD` |
+
+`.github/workflows/ci.yml` runs gofmt, vet, the Go tests and the frontend
+typecheck and build on every push to `main` and every pull request.
 
 ## Extensions
 
@@ -252,7 +324,9 @@ machine.
   which blocks DNS rebinding and drive-by pages. Allow specific origins with
   `NEXORA_MCP_ALLOWED_ORIGINS`. Wrong tokens are throttled (valid ones never
   are), refused requests are shown in the core panel, and the token can be
-  rotated there, which invalidates every old URL immediately.
+  rotated there, which invalidates every old URL immediately. OAuth sign-ins
+  must be approved in the app and can be signed out there; rotating the
+  token does not sign them out.
 
 ## Extension settings
 

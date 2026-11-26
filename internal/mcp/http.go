@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -31,9 +32,14 @@ type Guard struct {
 
 	allowedOrigins map[string]bool
 
-	// publicHost returns the live network provider's public host (e.g.
-	// "laptop.tailnet.ts.net:8443"), or "" when nothing is exposed.
-	publicHost atomic.Pointer[func() string]
+	// publicURL returns the live network provider's public base URL (e.g.
+	// "https://laptop.tailnet.ts.net:8443/nexora"), or "" when nothing is
+	// exposed.
+	publicURL atomic.Pointer[func() string]
+
+	// oauth, when set, also accepts its access tokens and serves its
+	// endpoints.
+	oauth *OAuth
 
 	// limiter throttles failed attempts (requests with a wrong token).
 	// Behind a tunnel every client shares one address, so it is global:
@@ -43,6 +49,19 @@ type Guard struct {
 	rejected    atomic.Int64
 	lastReject  atomic.Pointer[RejectInfo]
 	originBlock atomic.Int64
+	accepted    atomic.Int64
+	lastAccept  atomic.Pointer[AcceptInfo]
+}
+
+// AcceptInfo describes the latest authorised request, for the UI: proof
+// that a connected AI really reaches Nexora, and through which address.
+type AcceptInfo struct {
+	At time.Time `json:"at"`
+	// Client is the signed-in app's name, or how the secret token was
+	// sent ("token URL", "bearer token").
+	Client string `json:"client"`
+	Host   string `json:"host"`
+	Public bool   `json:"public"` // came through the network provider
 }
 
 // RejectInfo describes the latest refused request, for the UI.
@@ -52,11 +71,13 @@ type RejectInfo struct {
 	Remote string    `json:"remote"`
 }
 
-// GuardStats summarises refused requests since start.
+// GuardStats summarises requests since start.
 type GuardStats struct {
 	Rejected       int64       `json:"rejected"`
 	OriginsBlocked int64       `json:"originsBlocked"`
 	Last           *RejectInfo `json:"last,omitempty"`
+	Accepted       int64       `json:"accepted"`
+	LastAccepted   *AcceptInfo `json:"lastAccepted,omitempty"`
 }
 
 // aiClientOrigins are the web apps of hosted AI clients. Their connectors
@@ -86,10 +107,45 @@ func OpenGuard(path string, allowedOrigins []string) (*Guard, error) {
 	return g, nil
 }
 
-// SetPublicHost tells the guard which non-local Host header to accept: the
-// one the live network provider exposes. Proxies such as Tailscale Funnel
-// and cloudflared forward the public Host unchanged.
-func (g *Guard) SetPublicHost(fn func() string) { g.publicHost.Store(&fn) }
+// SetPublicURL tells the guard the live network provider's public base URL.
+// Its host is the one non-local Host header accepted (proxies such as
+// Tailscale Funnel and cloudflared forward it unchanged), and OAuth uses it
+// as the issuer for requests that come through it.
+func (g *Guard) SetPublicURL(fn func() string) { g.publicURL.Store(&fn) }
+
+// EnableOAuth accepts o's access tokens alongside the secret token. Call it
+// before NewHandler, which mounts o's endpoints.
+func (g *Guard) EnableOAuth(o *OAuth) { g.oauth = o }
+
+func (g *Guard) livePublicURL() *url.URL {
+	fn := g.publicURL.Load()
+	if fn == nil {
+		return nil
+	}
+	pub := (*fn)()
+	if pub == "" {
+		return nil
+	}
+	u, err := url.Parse(pub)
+	if err != nil {
+		return nil
+	}
+	return u
+}
+
+// baseURL is the MCP endpoint's URL as the client sees it: the provider's
+// public URL for requests that came through it, otherwise this server's
+// own /mcp. It is also the OAuth issuer and resource.
+func (g *Guard) baseURL(r *http.Request) string {
+	if pub := g.livePublicURL(); pub != nil && sameHost(pub.Host, r.Host) {
+		return strings.TrimSuffix(pub.String(), "/")
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host + "/mcp"
+}
 
 func (g *Guard) Token() string {
 	g.mu.RLock()
@@ -113,7 +169,16 @@ func (g *Guard) Rotate() (string, error) {
 }
 
 func (g *Guard) Stats() GuardStats {
-	return GuardStats{Rejected: g.rejected.Load(), OriginsBlocked: g.originBlock.Load(), Last: g.lastReject.Load()}
+	return GuardStats{
+		Rejected: g.rejected.Load(), OriginsBlocked: g.originBlock.Load(), Last: g.lastReject.Load(),
+		Accepted: g.accepted.Load(), LastAccepted: g.lastAccept.Load(),
+	}
+}
+
+func (g *Guard) accept(r *http.Request, client string) {
+	g.accepted.Add(1)
+	pub := g.livePublicURL()
+	g.lastAccept.Store(&AcceptInfo{At: time.Now(), Client: client, Host: r.Host, Public: pub != nil && sameHost(pub.Host, r.Host)})
 }
 
 func (g *Guard) reject(w http.ResponseWriter, r *http.Request, status int, reason string) {
@@ -124,8 +189,9 @@ func (g *Guard) reject(w http.ResponseWriter, r *http.Request, status int, reaso
 
 // check authorises a request. It refuses browser-originated requests (DNS
 // rebinding, drive-by pages), throttles repeated bad tokens and compares
-// tokens in constant time.
-func (g *Guard) check(w http.ResponseWriter, r *http.Request, provided string) bool {
+// tokens in constant time. OAuth access tokens are accepted only from the
+// Authorization header (fromHeader), never from the URL.
+func (g *Guard) check(w http.ResponseWriter, r *http.Request, provided string, fromHeader bool) bool {
 	if origin := r.Header.Get("Origin"); origin != "" && !g.allowedOrigins[strings.TrimSuffix(origin, "/")] {
 		g.originBlock.Add(1)
 		g.reject(w, r, http.StatusForbidden, "browser origin "+origin)
@@ -135,12 +201,26 @@ func (g *Guard) check(w http.ResponseWriter, r *http.Request, provided string) b
 		g.reject(w, r, http.StatusForbidden, "unexpected host "+r.Host)
 		return false
 	}
-	if tokenMatches(provided, g.Token()) {
+	client := ""
+	switch {
+	case tokenMatches(provided, g.Token()) && fromHeader:
+		client = "bearer token"
+	case tokenMatches(provided, g.Token()):
+		client = "token URL"
+	case fromHeader && g.oauth != nil:
+		client, _ = g.oauth.lookup(provided)
+	}
+	if client != "" {
+		g.accept(r, client)
 		return true
 	}
 	if !g.limiter.Allow() {
 		g.reject(w, r, http.StatusTooManyRequests, "too many bad tokens")
 		return false
+	}
+	if g.oauth != nil && fromHeader {
+		// Points MCP clients at OAuth discovery (RFC 9728).
+		w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+g.baseURL(r)+`/.well-known/oauth-protected-resource"`)
 	}
 	g.reject(w, r, http.StatusUnauthorized, "bad or missing token")
 	return false
@@ -158,10 +238,8 @@ func (g *Guard) hostAllowed(r *http.Request) bool {
 	if isLoopback(hostOnly(r.Host)) {
 		return true
 	}
-	if fn := g.publicHost.Load(); fn != nil {
-		if pub := (*fn)(); pub != "" && sameHost(pub, r.Host) {
-			return true
-		}
+	if pub := g.livePublicURL(); pub != nil && sameHost(pub.Host, r.Host) {
+		return true
 	}
 	return false
 }
@@ -193,7 +271,8 @@ func sameHost(a, b string) bool {
 // The token is accepted either as "Authorization: Bearer <token>" or as a
 // secret path segment (/mcp/<token>), because some AI clients (e.g. ChatGPT
 // connectors) only take a URL. Anyone with the token can run code against
-// the user's extensions, so treat the URL like a password.
+// the user's extensions, so treat the URL like a password. With OAuth
+// enabled on g, the bare /mcp URL also works for clients that sign in.
 func NewHandler(srv *mcp.Server, g *Guard) http.Handler {
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
 		&mcp.StreamableHTTPOptions{
@@ -210,20 +289,23 @@ func NewHandler(srv *mcp.Server, g *Guard) http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
-	authed := func(w http.ResponseWriter, r *http.Request, provided string) {
+	authed := func(w http.ResponseWriter, r *http.Request, provided string, fromHeader bool) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		if !g.check(w, r, provided) {
+		if !g.check(w, r, provided, fromHeader) {
 			return
 		}
 		mcpHandler.ServeHTTP(w, r)
 	}
 	mux.HandleFunc("/mcp", func(w http.ResponseWriter, r *http.Request) {
-		authed(w, r, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+		authed(w, r, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), true)
 	})
-	byPath := func(w http.ResponseWriter, r *http.Request) { authed(w, r, r.PathValue("token")) }
+	byPath := func(w http.ResponseWriter, r *http.Request) { authed(w, r, r.PathValue("token"), false) }
 	mux.HandleFunc("/mcp/{token}", byPath)
 	mux.HandleFunc("/mcp/{token}/", byPath) // URLs pasted with a trailing slash
+	if g.oauth != nil {
+		g.oauth.mount(mux, g)
+	}
 	return mux
 }
 

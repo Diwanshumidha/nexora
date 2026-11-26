@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
-import { Extensions, Permissions } from "./lib/api";
+import { Extensions, Permissions, Runtime, RuntimeState, Setup, Updates, openExternal, type RuntimeStatus, type UpdateInfo } from "./lib/api";
 import { useLive } from "./lib/useLive";
 import OrbitPage from "./pages/Orbit";
 import PlaygroundPage from "./pages/Playground";
 import HistoryPage from "./pages/History";
+import SetupPage from "./pages/Setup";
 import { Icon, Logo, type IconName } from "./orbit/icons";
 import type { Selection } from "./orbit/OrbitMap";
 
 type Page = "orbit" | "history" | "code";
+
+/** The update the user said "Later" to; a newer one shows again. */
+const DISMISSED_UPDATE_KEY = "nexora.dismissed-update";
 
 const pages: { id: Page; label: string; icon: IconName }[] = [
   { id: "orbit", label: "Orbit", icon: "orbit" },
@@ -31,6 +35,31 @@ export default function App() {
   };
   const first = approvals[0];
 
+  // First-run setup, also shown at launch whenever Node.js is unusable.
+  const [setup, setSetup] = useState<"checking" | "show" | "hidden">("checking");
+  const [runtime] = useLive(() => Runtime.Status(), 3000, null as RuntimeStatus | null);
+  useEffect(() => {
+    if (location.hash.startsWith("#perf")) {
+      setSetup("hidden");
+      return;
+    }
+    Promise.all([Setup.Done(), Runtime.Status()])
+      .then(([done, rt]) => setSetup(!done || rt.state !== RuntimeState.StateReady ? "show" : "hidden"))
+      .catch(() => setSetup("hidden"));
+  }, []);
+  const [update] = useLive(() => Updates.Info(), 60_000, null as UpdateInfo | null);
+  const [dismissed, setDismissed] = useState<string | null>(() => {
+    try { return localStorage.getItem(DISMISSED_UPDATE_KEY); } catch { return null; }
+  });
+  const dismissUpdate = (v: string) => {
+    setDismissed(v);
+    try { localStorage.setItem(DISMISSED_UPDATE_KEY, v); } catch { /* hidden for this session only */ }
+  };
+  const closeSetup = async () => {
+    await Setup.Complete().catch(console.error);
+    setSetup("hidden");
+  };
+
   // NEXORA_PERF=1: scroll benchmark in the real webview (dev only).
   useEffect(() => {
     if (location.hash.startsWith("#perf")) {
@@ -53,6 +82,9 @@ export default function App() {
     setPage("code");
   };
 
+  if (setup === "checking") return <div className="shell" />;
+  if (setup === "show") return <SetupPage onFinish={closeSetup} onSkip={closeSetup} />;
+
   return (
     <div className="shell">
       <nav className="rail" aria-label="Primary">
@@ -65,6 +97,27 @@ export default function App() {
         ))}
       </nav>
       <div className="page">
+        {update?.available && update.latest !== dismissed && (
+          <div className="approval-banner update-banner" role="status">
+            <span className="banner-dot" aria-hidden="true" />
+            <span>
+              <strong>Nexora {update.latest} is available.</strong>{" "}
+              <span className="muted">You have {update.current}.</span>
+            </span>
+            <button className="btn ghost" onClick={() => dismissUpdate(update.latest!)}>Later</button>
+            <button className="btn primary" onClick={() => update.url && openExternal(update.url)}>Download</button>
+          </div>
+        )}
+        {runtime && runtime.state !== RuntimeState.StateReady && (
+          <div className="approval-banner runtime-banner" role="status">
+            <span className="banner-dot" aria-hidden="true" />
+            <span>
+              <strong>Extensions are paused:</strong>{" "}
+              {runtime.state === RuntimeState.StateOutdated ? `Node.js ${runtime.found} is too old.` : "they need Node.js."}
+            </span>
+            <button className="btn primary" onClick={() => setSetup("show")}>Finish setup</button>
+          </div>
+        )}
         {first && !(page === "orbit" && selected.kind === "approval") && (
           <div className="approval-banner" role="alert">
             <span className="banner-dot" aria-hidden="true" />

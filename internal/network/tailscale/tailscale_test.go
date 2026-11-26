@@ -108,6 +108,11 @@ func TestFunnelExposeAndClose(t *testing.T) {
 	if h := sc.Web[hp].Handlers["/nexora"]; h == nil || h.Proxy != target.String() {
 		t.Fatalf("handler not set: %+v", sc.Web)
 	}
+	// OAuth clients look for metadata at the root, so it is forwarded too.
+	if h := sc.Web[hp].Handlers["/.well-known/oauth-authorization-server/nexora"]; h == nil ||
+		h.Proxy != "http://127.0.0.1:7377/.well-known/oauth-authorization-server/mcp" {
+		t.Fatalf("discovery not mounted: %+v", sc.Web[hp].Handlers)
+	}
 	if !sc.AllowFunnel[hp] || !sc.TCP[8443].HTTPS {
 		t.Fatalf("funnel/https not enabled: %+v", sc)
 	}

@@ -8,8 +8,22 @@ export * as History from "../../bindings/nexora/internal/services/historyservice
 export * as Permissions from "../../bindings/nexora/internal/services/permissionsservice";
 export * as Catalog from "../../bindings/nexora/internal/services/catalogservice";
 export * as Storage from "../../bindings/nexora/internal/services/storageservice";
+export * as Runtime from "../../bindings/nexora/internal/services/runtimeservice";
+export * as Setup from "../../bindings/nexora/internal/services/setupservice";
+export * as Updates from "../../bindings/nexora/internal/services/updateservice";
+export type { Info as UpdateInfo } from "../../bindings/nexora/internal/updates/models";
+
+import { Browser } from "@wailsio/runtime";
+
+/** Opens a URL in the user's browser (not inside the app window). */
+export function openExternal(url: string) {
+  Browser.OpenURL(url).catch(() => window.open(url, "_blank", "noopener"));
+}
+export { State as RuntimeState } from "../../bindings/nexora/internal/noderuntime/models";
+export type { Status as RuntimeStatus } from "../../bindings/nexora/internal/noderuntime/models";
 export { Choice, Decision, Mode } from "../../bindings/nexora/internal/permissions/models";
 export type { Approval } from "../../bindings/nexora/internal/permissions/models";
+export type { ConsentRequest, Connection } from "../../bindings/nexora/internal/mcp/models";
 export type { Info as ExtensionInfo } from "../../bindings/nexora/internal/extension/models";
 export type { Job, Stats as QueueStats } from "../../bindings/nexora/internal/jobs/models";
 export type { Record as HistoryRecord } from "../../bindings/nexora/internal/history/models";

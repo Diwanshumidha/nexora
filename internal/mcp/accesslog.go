@@ -51,6 +51,9 @@ func redactPath(p, token string) string {
 		return p
 	}
 	tok, tail, _ := strings.Cut(rest, "/")
+	if tok == "oauth" || tok == ".well-known" {
+		return p // OAuth endpoints, not a secret segment
+	}
 	mark := "<bad-token>"
 	if tokenMatches(tok, token) {
 		mark = "<token>"

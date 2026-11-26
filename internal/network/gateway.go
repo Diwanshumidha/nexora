@@ -137,19 +137,15 @@ func (g *Gateway) Close() {
 	}
 }
 
-// PublicHost returns the host[:port] of the live exposure, or "" when
-// nothing is exposed. The MCP guard accepts it as a Host header.
-func (g *Gateway) PublicHost() string {
+// PublicURL returns the live exposure's base URL, or "" when nothing is
+// exposed. The MCP guard accepts its host as a Host header.
+func (g *Gateway) PublicURL() string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.state != StateUp || g.exposure == nil {
 		return ""
 	}
-	u, err := url.Parse(g.exposure.URL)
-	if err != nil {
-		return ""
-	}
-	return u.Host
+	return g.exposure.URL
 }
 
 // List returns all providers, the active one marked.

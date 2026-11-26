@@ -9,10 +9,12 @@ import {
   Mode,
   Network,
   Permissions,
+  Setup,
   type Approval,
   type CatalogItem,
   type CatalogView,
   type ConnectInfo,
+  type Connection,
   type ExtensionPermissions,
   type ToolPermission,
   type ExtensionInfo,
@@ -20,7 +22,7 @@ import {
   type NetworkEndpoint,
   type QueueStats,
 } from "../lib/api";
-import { timeAgo, useRun } from "../lib/useLive";
+import { timeAgo, useLive, useRun } from "../lib/useLive";
 import { Icon, Logo, iconFor, type IconName } from "./icons";
 import { RunDetail } from "../components/RunDetail";
 import { SettingsForm } from "../components/SettingsForm";
@@ -150,6 +152,8 @@ function CorePanel({ connect, stats, network, extensions, history, approvals, on
         <Stat label="Runs" value={String(history.length)} />
       </div>
 
+      {connect?.enabled && <ConnectGuide connect={connect} live={live} />}
+
       {approvals.length > 0 && (
         <Section title="WAITING FOR YOU">
           <ul className="rows">
@@ -171,7 +175,8 @@ function CorePanel({ connect, stats, network, extensions, history, approvals, on
           <>
             <Secret url={connect.url} masked={connect.baseUrl + "/••••••••"} />
             <p className="hint">
-              Streamable HTTP. Or use <code>{connect.baseUrl}</code> with <code>Authorization: Bearer &lt;token&gt;</code>.
+              The token URL, for clients without sign-in. Or use <code>{connect.baseUrl}</code> with{" "}
+              <code>Authorization: Bearer &lt;token&gt;</code>.
             </p>
           </>
         ) : (
@@ -184,6 +189,7 @@ function CorePanel({ connect, stats, network, extensions, history, approvals, on
           <>
             <Secret url={live.mcpUrl} masked={(live.exposure?.url ?? "") + "/••••••••"} />
             <p className="hint">{live.exposure?.message}</p>
+            <OAuthURL url={live.exposure?.url ?? ""} />
           </>
         ) : (
           <p className="hint">
@@ -193,6 +199,8 @@ function CorePanel({ connect, stats, network, extensions, history, approvals, on
       </Section>
 
       <SecuritySection />
+
+      {connect?.enabled && <ConnectionsSection />}
 
       <Section title="LONG RUNS">
         <p className="hint">
@@ -206,12 +214,17 @@ function CorePanel({ connect, stats, network, extensions, history, approvals, on
 
 function SecuritySection() {
   const [strict, setStrict] = useState<boolean | null>(null);
-  const [stats, setStats] = useState<{ rejected: number; originsBlocked: number; last?: { at: string; reason: string } | null } | null>(null);
+  const [stats, setStats] = useState<{
+    rejected: number; originsBlocked: number; last?: { at: string; reason: string } | null;
+    accepted: number; lastAccepted?: { at: string; client: string; host: string; public: boolean } | null;
+  } | null>(null);
+  const [atLogin, setAtLogin] = useState<boolean | null>(null);
   const [confirmRotate, setConfirmRotate] = useState(false);
   const [rotated, setRotated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     Permissions.Strict().then(setStrict);
+    Setup.Autostart().then(setAtLogin).catch(() => setAtLogin(false));
     const load = () => Connect.Security().then(setStats).catch(() => {});
     load();
     const t = setInterval(load, 5000);
@@ -223,6 +236,15 @@ function SecuritySection() {
     try {
       await Permissions.SetStrict(!strict);
       setStrict(!strict);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  const toggleAtLogin = async () => {
+    setError(null);
+    try {
+      await Setup.SetAutostart(!atLogin);
+      setAtLogin(!atLogin);
     } catch (e) {
       setError(String(e));
     }
@@ -254,6 +276,28 @@ function SecuritySection() {
 
       <div className="sec-row">
         <div className="setting-text">
+          <span className="setting-head">Last AI request</span>
+          <small className="setting-help">
+            {stats?.lastAccepted
+              ? `${stats.lastAccepted.client} via ${stats.lastAccepted.public ? stats.lastAccepted.host : "this computer"}, ${timeAgo(stats.lastAccepted.at)} ago · ${stats.accepted} since start`
+              : "None since start. Once an AI connects, its latest request shows here."}
+          </small>
+        </div>
+      </div>
+
+      <div className="setting setting-inline sec-row">
+        <div className="setting-text">
+          <span className="setting-head">Start at login</span>
+          <small className="setting-help">Runs in the background after a restart, so AIs can reach Nexora without opening it.</small>
+        </div>
+        <label className="switch">
+          <input type="checkbox" aria-label="Start at login" checked={!!atLogin} disabled={atLogin === null} onChange={toggleAtLogin} />
+          <span aria-hidden="true" />
+        </label>
+      </div>
+
+      <div className="sec-row">
+        <div className="setting-text">
           <span className="setting-head">Refused requests</span>
           <small className="setting-help">
             {stats && stats.rejected > 0
@@ -277,6 +321,215 @@ function SecuritySection() {
           <button className="btn ghost" onClick={() => setConfirmRotate(true)}>{rotated ? "Rotated" : "Rotate"}</button>
         )}
       </div>
+      {error && <p className="error">{error}</p>}
+    </Section>
+  );
+}
+
+type Client = "claude-code" | "claude-ai" | "chatgpt" | "other";
+
+const CLIENTS: { id: Client; label: string }[] = [
+  { id: "claude-code", label: "Claude Code" },
+  { id: "claude-ai", label: "Claude.ai" },
+  { id: "chatgpt", label: "ChatGPT" },
+  { id: "other", label: "Other" },
+];
+
+const GUIDE_KEY = "nexora.connect-guide";
+
+/** Step-by-step instructions for connecting a specific AI client, with this
+ *  machine's real URLs filled in. Hosted clients need a public URL, so their
+ *  steps start by pointing at the network orbit until one is live. */
+export function ConnectGuide({ connect, live }: { connect: ConnectInfo; live?: NetworkEndpoint }) {
+  const [client, setClient] = useState<Client>(() => {
+    try {
+      return (localStorage.getItem(GUIDE_KEY) as Client) || "claude-code";
+    } catch {
+      return "claude-code";
+    }
+  });
+  const pick = (c: Client) => {
+    setClient(c);
+    try { localStorage.setItem(GUIDE_KEY, c); } catch { /* remembered for this view only */ }
+  };
+
+  const publicURL = live?.state === "up" && live.exposure?.public ? live.exposure.url : "";
+  const tailnetURL = live?.state === "up" && live.exposure && !live.exposure.public ? live.exposure.url : "";
+  const approve = (
+    <>
+      Your browser opens a page with a short code, and Nexora pops up a <strong>Connect</strong> window with the same
+      code. Click <strong>Connect</strong> only if the codes match.
+    </>
+  );
+  const needPublic = (
+    <li>
+      <span>
+        Hosted AIs run in the cloud, so they need a <strong>public URL</strong>. Make a provider live on the inner{" "}
+        <span className="tone-text-net">network</span> orbit: Tailscale in <code>funnel</code> mode, or Cloudflare.
+        {tailnetURL && <> Tailscale is live in <code>tailnet</code> mode, which hosted AIs can't reach.</>}
+      </span>
+    </li>
+  );
+
+  return (
+    <Section title="CONNECT AN AI">
+      <div className="segmented four" role="radiogroup" aria-label="AI client">
+        {CLIENTS.map((c) => (
+          <button key={c.id} type="button" role="radio" aria-checked={client === c.id}
+            className={`seg ${client === c.id ? "on seg-trusted" : ""}`} onClick={() => pick(c.id)}>
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      {client === "claude-code" && (
+        <ol className="steps">
+          <li>
+            <span>Add Nexora in a terminal:</span>
+            <CopyLine text={`claude mcp add --transport http nexora ${connect.baseUrl}`} />
+            {publicURL && <small className="hint">On another computer, use <code>{publicURL}</code> instead.</small>}
+          </li>
+          <li><span>Start <code>claude</code>, run <code>/mcp</code>, pick <strong>nexora</strong> and choose <strong>Authenticate</strong>.</span></li>
+          <li><span>{approve}</span></li>
+          <li><span>Done. Ask Claude to use Nexora; it reads the API with <code>get_api</code> and runs scripts with <code>run_code</code>.</span></li>
+        </ol>
+      )}
+
+      {client === "claude-ai" && (
+        <ol className="steps">
+          {publicURL ? (
+            <li>
+              <span>Copy the public URL:</span>
+              <CopyLine text={publicURL} />
+            </li>
+          ) : needPublic}
+          <li>
+            <span>
+              On claude.ai open <strong>Settings → Connectors</strong> and click <strong>Add custom connector</strong>.
+              Name it <em>Nexora</em> and paste the URL. Leave the advanced OAuth fields empty.
+            </span>
+          </li>
+          <li><span>Click <strong>Connect</strong> next to Nexora. {approve}</span></li>
+          <li><span>In a chat, turn Nexora on from the tools menu. The desktop and mobile apps pick it up too.</span></li>
+        </ol>
+      )}
+
+      {client === "chatgpt" && (
+        <ol className="steps">
+          {publicURL ? (
+            <li>
+              <span>Copy the public URL:</span>
+              <CopyLine text={publicURL} />
+            </li>
+          ) : needPublic}
+          <li>
+            <span>
+              In ChatGPT open <strong>Settings → Apps &amp; Connectors → Advanced settings</strong> and turn on{" "}
+              <strong>Developer mode</strong>.
+            </span>
+          </li>
+          <li>
+            <span>
+              Back in <strong>Apps &amp; Connectors</strong>, click <strong>Create</strong>. Name it <em>Nexora</em>, paste the
+              URL, set <strong>Authentication</strong> to <strong>OAuth</strong> and confirm you trust it.
+            </span>
+          </li>
+          <li><span>{approve}</span></li>
+          <li><span>In a chat, enable Nexora from the <strong>+ → Developer mode</strong> menu.</span></li>
+        </ol>
+      )}
+
+      {client === "other" && (
+        <ol className="steps">
+          <li>
+            <span>
+              Most MCP clients (Cursor, VS Code, Windsurf, ...) take a Streamable HTTP URL. Add Nexora to their MCP config:
+            </span>
+            <CopyLine text={JSON.stringify({ mcpServers: { nexora: { url: publicURL || connect.baseUrl } } }, null, 2)} multiline />
+          </li>
+          <li><span>If the client supports sign-in (OAuth), it starts it on first use. {approve}</span></li>
+          <li>
+            <span>
+              No sign-in support? Use the token URL instead (under <strong>On this machine</strong>
+              {publicURL ? <> or <strong>Remote access</strong></> : null} below), or send{" "}
+              <code>Authorization: Bearer &lt;token&gt;</code>. Treat it like a password.
+            </span>
+          </li>
+        </ol>
+      )}
+
+      <p className="hint">
+        Approved apps appear under <strong>Signed-in apps</strong>, where you can sign them out. Every tool call still
+        follows your extension permissions.
+      </p>
+    </Section>
+  );
+}
+
+/** A command or URL with a copy button. Not for secrets: see Secret. */
+function CopyLine({ text, multiline }: { text: string; multiline?: boolean }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className={`secret ${multiline ? "secret-multi" : ""}`}>
+      {multiline ? <pre className="mono">{text}</pre> : <code>{text}</code>}
+      <button className="icon-btn" aria-label="Copy"
+        onClick={async () => { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
+        <Icon name={copied ? "check" : "copy"} size={16} />
+      </button>
+    </div>
+  );
+}
+
+/** The token-free URL for clients that sign in with OAuth (claude.ai and
+ *  ChatGPT connectors, Claude Code). It is safe to share: on its own it only
+ *  starts a sign-in the user has to approve in the app. */
+function OAuthURL({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+  if (!url) return null;
+  return (
+    <>
+      <div className="secret">
+        <code>{url}</code>
+        <button className="icon-btn" aria-label="Copy sign-in URL"
+          onClick={async () => { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
+          <Icon name={copied ? "check" : "copy"} size={16} />
+        </button>
+      </div>
+      <p className="hint">For clients that sign in (OAuth): add this URL without the token and approve the request that pops up here.</p>
+    </>
+  );
+}
+
+/** AI clients signed in over OAuth, each revocable. */
+function ConnectionsSection() {
+  const [conns, refresh] = useLive(async () => (await Connect.Connections()) ?? [], 5000, [] as Connection[]);
+  const [error, setError] = useState<string | null>(null);
+  const revoke = async (id: string) => {
+    setError(null);
+    try {
+      await Connect.RevokeConnection(id);
+    } catch (e) {
+      setError(String(e));
+    }
+    refresh();
+  };
+  return (
+    <Section title="SIGNED-IN APPS">
+      {conns.length === 0 ? (
+        <p className="hint">None yet. Clients that sign in with OAuth appear here once you approve them.</p>
+      ) : (
+        conns.map((c) => (
+          <div key={c.id} className="sec-row">
+            <div className="setting-text">
+              <span className="setting-head">{c.clientName}</span>
+              <small className="setting-help">
+                via {c.via} · approved {timeAgo(c.createdAt)} ago · last used {timeAgo(c.lastUsed)} ago
+              </small>
+            </div>
+            <button className="btn ghost" onClick={() => revoke(c.id)}>Sign out</button>
+          </div>
+        ))
+      )}
       {error && <p className="error">{error}</p>}
     </Section>
   );
@@ -338,6 +591,7 @@ function NetworkPanel({ n, refresh }: { n: NetworkEndpoint; refresh: () => void 
         <Section title="PUBLIC MCP URL" aside={<Badge tone={n.exposure?.public ? "live" : "net"}>{n.exposure?.public ? "PUBLIC" : "TAILNET"}</Badge>}>
           <Secret url={n.mcpUrl} masked={(n.exposure?.url ?? "") + "/••••••••"} />
           <p className="hint">{n.exposure?.message} Anyone with this URL can run code against your extensions.</p>
+          <OAuthURL url={n.exposure?.url ?? ""} />
         </Section>
       )}
 

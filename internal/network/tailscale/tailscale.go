@@ -7,8 +7,9 @@
 //     the mode they need.
 //   - tailnet: the same URL, reachable only from your own Tailscale devices.
 //
-// Only a dedicated path is mounted, so other `tailscale serve` handlers are
-// left alone. Funnel is enabled per port, so the provider refuses to funnel
+// Only a dedicated path is mounted, plus the well-known OAuth discovery
+// URLs for it (clients look for those at the root), so other `tailscale
+// serve` handlers are left alone. Funnel is enabled per port, so the provider refuses to funnel
 // a port that already serves other handlers (they would become public).
 package tailscale
 
@@ -51,6 +52,20 @@ type Provider struct {
 type exposure struct {
 	host, path, mode, target string
 	port                     uint16
+	// discovery maps the root well-known OAuth metadata URLs for path to
+	// the local server's equivalents for the target path.
+	discovery map[string]string
+}
+
+// discoveryMounts returns the RFC 8414/9728 metadata locations for a
+// resource mounted at path, proxied to the same documents for target.
+func discoveryMounts(target *url.URL, path string) map[string]string {
+	origin := target.Scheme + "://" + target.Host
+	out := map[string]string{}
+	for _, kind := range []string{"oauth-protected-resource", "oauth-authorization-server", "openid-configuration"} {
+		out["/.well-known/"+kind+path] = origin + "/.well-known/" + kind + target.Path
+	}
+	return out
 }
 
 func (e *exposure) hostPort() ipn.HostPort {
@@ -92,6 +107,14 @@ func (p *Provider) Expose(ctx context.Context, target *url.URL, opts map[string]
 			return err
 		}
 		sc.SetWebHandler(&ipn.HTTPHandler{Proxy: ex.target}, ex.host, ex.port, ex.path, true, "")
+		for mount, proxy := range ex.discovery {
+			// Best effort: a mount someone else uses is left alone; clients
+			// then find the metadata under path instead.
+			if web := sc.Web[ex.hostPort()]; web != nil && web.Handlers[mount] != nil && web.Handlers[mount].Proxy != proxy {
+				continue
+			}
+			sc.SetWebHandler(&ipn.HTTPHandler{Proxy: proxy}, ex.host, ex.port, mount, true, "")
+		}
 		sc.SetFunnel(ex.host, ex.port, ex.mode == modeFunnel)
 		return nil
 	})
@@ -142,6 +165,7 @@ func (p *Provider) plan(ctx context.Context, target *url.URL, opts map[string]st
 	if ex.path, err = normalisePath(opts["path"]); err != nil {
 		return nil, err
 	}
+	ex.discovery = discoveryMounts(target, ex.path)
 	if ex.mode == modeFunnel {
 		// Checks the node's funnel/https capabilities and allowed ports;
 		// its errors link to the relevant admin settings.
@@ -167,6 +191,8 @@ func checkConflicts(sc *ipn.ServeConfig, ex *exposure) error {
 				// Ours, e.g. left over from a crash: safe to overwrite.
 			case mount == ex.path:
 				return fmt.Errorf("path %s on port %d is already used by another service; choose another path", ex.path, ex.port)
+			case ex.discovery[mount] != "" && ex.discovery[mount] == h.Proxy:
+				// Our discovery mount.
 			default:
 				others = append(others, mount)
 			}
@@ -221,7 +247,13 @@ func (p *Provider) Close(ctx context.Context) error {
 		if web == nil || web.Handlers[ex.path] == nil || web.Handlers[ex.path].Proxy != ex.target {
 			return nil // already gone, or replaced by someone else
 		}
-		sc.RemoveWebHandler(ex.host, ex.port, []string{ex.path}, true)
+		mounts := []string{ex.path}
+		for mount, proxy := range ex.discovery {
+			if h := web.Handlers[mount]; h != nil && h.Proxy == proxy {
+				mounts = append(mounts, mount)
+			}
+		}
+		sc.RemoveWebHandler(ex.host, ex.port, mounts, true)
 		if ex.mode == modeFunnel {
 			// We turned Funnel on, so turn it off even if other handlers were
 			// added to the port meanwhile: they were never meant to be public.

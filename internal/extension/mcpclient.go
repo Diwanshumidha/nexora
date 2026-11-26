@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -58,6 +59,9 @@ type mcpOptions struct {
 	// OAuth enables OAuth sign-in for a remote server that has no
 	// Authorization header of its own.
 	OAuth *oauthOptions
+	// PathPrefix is put first on a local server's PATH (the managed
+	// Node.js, so npx works without a system install).
+	PathPrefix string
 }
 
 // connectMCP starts or connects to the server described by m, performs the
@@ -100,7 +104,19 @@ func connectMCP(ctx context.Context, m *Manifest, opts mcpOptions, log *slog.Log
 		for k, v := range m.Env {
 			env[k] = x.str(v)
 		}
-		cmd := exec.Command(x.str(m.Command), x.args(m.Args)...)
+		env["PATH"] = withPathPrefix(env["PATH"], opts.PathPrefix)
+		if env["PATH"] == "" {
+			delete(env, "PATH")
+		}
+		command := x.str(m.Command)
+		if opts.PathPrefix != "" && !strings.ContainsAny(command, `/\`) {
+			// exec resolves a bare name against Nexora's PATH, not the
+			// child's, so look in the managed runtime first.
+			if p, err := exec.LookPath(filepath.Join(opts.PathPrefix, command)); err == nil {
+				command = p
+			}
+		}
+		cmd := exec.Command(command, x.args(m.Args)...)
 		cmd.Dir = opts.Dir
 		cmd.Env = mcpEnv(env)
 		cmd.Stderr = &lineLogger{log: c.log}
@@ -336,6 +352,22 @@ func (c *mcpConn) Stop(ctx context.Context) error {
 
 func (c *mcpConn) Done() <-chan struct{} { return c.done }
 func (c *mcpConn) ExitErr() error        { return c.exitErr }
+
+// withPathPrefix puts dir first on a PATH: the manifest's PATH if it sets
+// one, otherwise the inherited one. Unchanged when dir is empty.
+func withPathPrefix(manifestPath, dir string) string {
+	if dir == "" {
+		return manifestPath
+	}
+	rest := manifestPath
+	if rest == "" {
+		rest = os.Getenv("PATH")
+	}
+	if rest == "" {
+		return dir
+	}
+	return dir + string(os.PathListSeparator) + rest
+}
 
 // mcpEnv is the environment of a local MCP server: the essentials to find
 // and run programs, plus the manifest's variables. Secrets in the user's

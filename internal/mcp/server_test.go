@@ -32,6 +32,12 @@ func newEndpoint(t *testing.T, inlineWait time.Duration) string {
 
 func newGuardedEndpoint(t *testing.T, inlineWait time.Duration) (string, *nmcp.Guard) {
 	t.Helper()
+	return newOAuthGuardedEndpoint(t, inlineWait, nil)
+}
+
+// newOAuthGuardedEndpoint serves a test MCP endpoint; oauth, if set, is enabled on it.
+func newOAuthGuardedEndpoint(t *testing.T, inlineWait time.Duration, oauth *nmcp.OAuth) (string, *nmcp.Guard) {
+	t.Helper()
 	dir := t.TempDir()
 	mgr := extension.NewManager(&config.Config{ExtensionsDir: dir, ExtensionDataDir: dir},
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -49,6 +55,9 @@ func newGuardedEndpoint(t *testing.T, inlineWait time.Duration) (string, *nmcp.G
 	guard, err := nmcp.OpenGuard(tokenFile, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if oauth != nil {
+		guard.EnableOAuth(oauth)
 	}
 	ts := httptest.NewServer(nmcp.NewHandler(srv, guard))
 	t.Cleanup(ts.Close)
@@ -255,8 +264,8 @@ func TestHostCheckFollowsTheLiveProvider(t *testing.T) {
 		t.Fatalf("unexposed public host: got %d", got)
 	}
 
-	live := public
-	guard.SetPublicHost(func() string { return live })
+	live := "https://" + public + "/nexora"
+	guard.SetPublicURL(func() string { return live })
 	if got := status(t, withHost("evil.example")); got != http.StatusForbidden {
 		t.Fatalf("other hosts stay blocked: got %d", got)
 	}
@@ -275,7 +284,7 @@ func TestHostCheckFollowsTheLiveProvider(t *testing.T) {
 	cs.Close()
 
 	// Port 443 may be implied either way.
-	live = "laptop.tail1234.ts.net"
+	live = "https://laptop.tail1234.ts.net/nexora"
 	if got := status(t, withHost("laptop.tail1234.ts.net:443")); got == http.StatusForbidden {
 		t.Fatal(":443 should match a host without a port")
 	}

@@ -24,8 +24,13 @@ type Config struct {
 	// DevExtensionsDirs are additional folders scanned for extensions, used
 	// while developing (e.g. ./extensions in the repo).
 	DevExtensionsDirs []string
-	// NodePath is the Node.js binary used to run JS extensions.
+	// NodePath forces the Node.js binary used to run JS extensions
+	// (NEXORA_NODE). Empty: the managed runtime, else node on PATH.
 	NodePath string
+	// RuntimeDir holds the managed Node.js runtime.
+	RuntimeDir string
+	// NodeMirror is where the managed runtime is downloaded from.
+	NodeMirror string
 
 	// Workers is the number of code-mode jobs executed concurrently.
 	Workers int
@@ -38,6 +43,8 @@ type Config struct {
 	MCPAddr string
 	// MCPTokenFile holds the MCP access token.
 	MCPTokenFile string
+	// MCPOAuthFile holds OAuth clients and connections (token hashes only).
+	MCPOAuthFile string
 	// MCPAllowedOrigins are browser origins allowed to call the endpoint
 	// (normally none; MCP clients are not web pages).
 	MCPAllowedOrigins []string
@@ -54,6 +61,9 @@ type Config struct {
 	// RegistryURL is the extension catalog (index.json) the "+" panel
 	// installs from; empty hides the catalog.
 	RegistryURL string
+	// UpdateURL is the latest-release API checked for updates; "off"
+	// disables the check, empty uses the default.
+	UpdateURL string
 	// MCPInlineWait is how long an MCP call waits for a result before
 	// returning a job ID. Keep it below any proxy timeout (e.g. 100 s).
 	MCPInlineWait time.Duration
@@ -75,14 +85,18 @@ func Load() (*Config, error) {
 		ExtensionsDir:        filepath.Join(data, "extensions"),
 		ExtensionDataDir:     filepath.Join(data, "extension-data"),
 		ExtensionSettingsDir: filepath.Join(data, "extension-settings"),
-		NodePath:             envOr("NEXORA_NODE", "node"),
+		NodePath:             os.Getenv("NEXORA_NODE"),
+		RuntimeDir:           filepath.Join(data, "runtime"),
+		NodeMirror:           os.Getenv("NEXORA_NODE_MIRROR"),
 		MCPAddr:              envOr("NEXORA_MCP_ADDR", "127.0.0.1:7377"),
 		MCPTokenFile:         filepath.Join(data, "mcp-token"),
+		MCPOAuthFile:         filepath.Join(data, "mcp-oauth.json"),
 		NetworkFile:          filepath.Join(data, "network.json"),
 		HistoryFile:          filepath.Join(data, "history.jsonl"),
 		PermissionsFile:      filepath.Join(data, "permissions.json"),
 		CacheFile:            filepath.Join(data, "cache.json"),
 		RegistryURL:          envOr("NEXORA_REGISTRY_URL", DefaultRegistryURL),
+		UpdateURL:            os.Getenv("NEXORA_UPDATE_URL"),
 	}
 	if cfg.MCPAddr == "off" {
 		cfg.MCPAddr = ""
