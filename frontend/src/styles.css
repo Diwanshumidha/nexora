@@ -217,6 +217,10 @@ input, select, textarea {
 .insp-title .mono { font-size: 12px; overflow-wrap: anywhere; }
 .insp-desc { margin: 0; font-size: 13px; line-height: 1.55; color: var(--text-2); }
 .insp-section { display: flex; flex-direction: column; gap: 8px; }
+/* Every section in a panel starts on its own rule, evenly spaced, so
+   settings, trust, tools and the rest read as separate blocks. */
+.inspector > .insp-section { padding-top: 20px; margin-top: 4px; border-top: 1px solid var(--line-2); }
+.inspector > .insp-section > .insp-label { margin-bottom: 4px; }
 .insp-label { display: flex; justify-content: space-between; align-items: center; font: 500 11px var(--mono); letter-spacing: 0.08em; color: var(--muted); }
 .insp-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
@@ -453,8 +457,7 @@ kbd { font: 500 10px var(--mono); padding: 2px 5px; border-radius: 4px; backgrou
 
 /* ---------- extension settings ---------- */
 .settings-form { display: flex; flex-direction: column; gap: 18px; }
-/* Closes the settings off from the trust and tool sections below. */
-.settings-section { padding-bottom: 20px; border-bottom: 1px solid var(--line-2); }
+
 .setting { display: flex; flex-direction: column; gap: 6px; }
 .setting-inline { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
 .setting-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -478,7 +481,6 @@ kbd { font: 500 10px var(--mono); padding: 2px 5px; border-radius: 4px; backgrou
   position: sticky; bottom: -24px; z-index: 1; margin: 0 -24px; padding: 12px 24px;
   background: var(--panel);
 }
-.settings-section:has(.settings-save) { padding-bottom: 8px; }
 .input-unit { position: relative; display: flex; }
 .input-unit input { flex: 1; min-width: 0; padding-right: 44px; -moz-appearance: textfield; }
 .input-unit input::-webkit-inner-spin-button, .input-unit input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
@@ -611,3 +613,6 @@ kbd { font: 500 10px var(--mono); padding: 2px 5px; border-radius: 4px; backgrou
    an exception you made is filled. */
 .tool .tri-opt { width: 30px; padding: 0; justify-content: center; }
 .tool .tri-opt.on:not(.custom) { background: transparent; border-color: transparent; }
+
+/* The next section's rule closes a list; a last-row border would double it. */
+.catalog-item:last-child, .tool-group:last-child .tool:last-child { border-bottom: 0; padding-bottom: 2px; }
