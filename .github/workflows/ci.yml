@@ -1,0 +1,57 @@
+# Runs on every push and pull request: formatting, vet, Go tests,
+# TypeScript checks and a frontend build.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: System libraries (GTK4 / WebKitGTK 6)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck and build the frontend
+        run: |
+          pnpm --filter frontend exec tsc --noEmit -p .
+          pnpm build:frontend
+
+      - name: gofmt
+        run: test -z "$(gofmt -l main.go internal)" || { gofmt -l main.go internal; exit 1; }
+
+      - name: go vet
+        run: go vet . ./internal/...
+
+      # Extension end-to-end tests skip themselves without a built
+      # nexora-extensions checkout; online tests need NEXORA_ONLINE_TESTS.
+      - name: go test
+        run: go test -race -short ./internal/...

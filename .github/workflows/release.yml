@@ -1,0 +1,217 @@
+# Builds installers for Linux, macOS and Windows when a version tag is
+# pushed (git tag v0.2.0 && git push origin v0.2.0), and attaches them to a
+# draft GitHub release to review and publish. Publishing it is what makes
+# the in-app update check offer the new version.
+#
+# Signing is optional and switches on per platform when its secrets exist:
+#   macOS:   APPLE_CERTIFICATE (base64 .p12 of a "Developer ID Application"
+#            certificate), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY
+#            (e.g. "Developer ID Application: Name (TEAMID)"), and for
+#            notarization APPLE_ID, APPLE_APP_PASSWORD (app-specific
+#            password), APPLE_TEAM_ID.
+#   Windows: WINDOWS_CERTIFICATE (base64 .pfx code-signing certificate),
+#            WINDOWS_CERTIFICATE_PASSWORD.
+# Without them the builds are unsigned: macOS Gatekeeper blocks them and
+# Windows SmartScreen warns.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. 0.2.0); creates no release"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  WAILS_VERSION: v3.1.0
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          v="${{ github.event.inputs.version || github.ref_name }}"
+          v="${v#v}"
+          echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "bad version: $v"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev libfuse2t64 file
+      - run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
+      - run: pnpm install --frozen-lockfile
+      - run: scripts/set-version.sh ${{ needs.version.outputs.version }}
+      - name: AppImage and .deb
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1" # no FUSE on the runner
+        run: |
+          wails3 task linux:create:appimage
+          wails3 task linux:create:deb
+      - name: Collect
+        run: |
+          mkdir dist
+          v=${{ needs.version.outputs.version }}
+          cp bin/*.AppImage "dist/Nexora-$v-linux-x86_64.AppImage"
+          cp bin/*.deb "dist/nexora_${v}_amd64.deb"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*
+
+  macos:
+    needs: version
+    runs-on: macos-14
+    env:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
+      - run: pnpm install --frozen-lockfile
+      - run: scripts/set-version.sh ${{ needs.version.outputs.version }}
+      - name: Universal .app (Apple Silicon + Intel)
+        run: wails3 task darwin:package:universal
+
+      - name: Sign
+        if: ${{ env.APPLE_CERTIFICATE != '' }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          kpass="$(openssl rand -hex 16)"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$kpass" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$kpass" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$kpass" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          codesign --force --deep --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" bin/nexora.app
+          codesign --verify --deep --strict --verbose=2 bin/nexora.app
+
+      - name: Disk image
+        run: wails3 task darwin:create:dmg
+
+      - name: Notarize
+        if: ${{ env.APPLE_ID != '' && env.APPLE_CERTIFICATE != '' }}
+        run: |
+          dmg=$(ls bin/*.dmg)
+          codesign --force --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$dmg"
+          xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$dmg"
+
+      - name: Collect
+        run: |
+          mkdir dist
+          cp bin/*.dmg "dist/Nexora-${{ needs.version.outputs.version }}-macos-universal.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*
+
+  windows:
+    needs: version
+    runs-on: windows-2022
+    env:
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
+      - run: pnpm install --frozen-lockfile
+      - run: scripts/set-version.sh ${{ needs.version.outputs.version }}
+      - name: Installer (NSIS, per-user so no admin prompt)
+        run: wails3 task windows:package INSTALL_SCOPE=user
+
+      - name: Sign
+        if: ${{ env.WINDOWS_CERTIFICATE != '' }}
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "cert.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          Get-ChildItem bin\*-installer.exe | ForEach-Object {
+            & $signtool.FullName sign /f $pfx /p $env:WINDOWS_CERTIFICATE_PASSWORD /fd sha256 /tr http://timestamp.digicert.com /td sha256 $_.FullName
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+          Remove-Item $pfx
+
+      - name: Collect
+        run: |
+          mkdir dist
+          cp bin/nexora-amd64-installer.exe "dist/Nexora-${{ needs.version.outputs.version }}-windows-x64-setup.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+
+  release:
+    if: github.event_name == 'push'
+    needs: [version, linux, macos, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS.txt
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" dist/* \
+            --repo "${{ github.repository }}" --draft --generate-notes \
+            --title "Nexora ${{ needs.version.outputs.version }}"
