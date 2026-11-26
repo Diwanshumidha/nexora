@@ -37,6 +37,8 @@ interface Props {
   extensions: ExtensionInfo[];
   history: RunSummary[];
   approvals: Approval[];
+  /** Installed extensions with a newer version in the catalog. */
+  updates: CatalogItem[];
   refresh: () => void;
   onOpenRun: (id: string) => void;
 }
@@ -358,8 +360,9 @@ function NetworkPanel({ n, refresh }: { n: NetworkEndpoint; refresh: () => void 
 
 /* ----------------------------------------------------------- extension */
 
-function ExtensionPanel({ e, history, refresh, onSelect }: Props & { e: ExtensionInfo }) {
+function ExtensionPanel({ e, history, updates, refresh, onSelect }: Props & { e: ExtensionInfo }) {
   const m = e.manifest!;
+  const update = updates.find((u) => u.id === m.id);
   const ns = m.namespace ?? m.id;
   const { busy, error, run } = useAction(refresh);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -402,6 +405,14 @@ function ExtensionPanel({ e, history, refresh, onSelect }: Props & { e: Extensio
         <div className="notice">
           <span>Finish signing in in your browser. Nexora connects as soon as you approve access.</span>
           <button className="btn ghost" onClick={() => Extensions.CancelSignIn(m.id).finally(refresh)}>Cancel</button>
+        </div>
+      )}
+      {update && (
+        <div className="notice">
+          <span>Version {update.version} is available (you have {update.installedVersion}). Updating keeps its settings and data.</span>
+          <button className="btn primary" disabled={busy} onClick={() => run(() => Catalog.Update(m.id))}>
+            {busy ? "Updating…" : "Update"}
+          </button>
         </div>
       )}
       {e.stale && (
@@ -749,30 +760,93 @@ function MCPConnection({ m, auth, busy, onSignOut }: {
 function AddPanel({ refresh, onSelect }: Props) {
   const [view, setView] = useState<CatalogView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [working, setWorking] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const [dir, setDir] = useState("");
   const { busy, error, run } = useAction(refresh);
 
-  const load = () => {
+  // force skips the saved copy (the Refresh button); otherwise the backend
+  // answers from it if it's recent, so the panel opens instantly.
+  const load = (force = false) => {
+    setLoading(true);
     setLoadError(null);
-    Catalog.List().then(setView).catch((e) => setLoadError(String(e)));
+    Catalog.List(force)
+      .then(setView)
+      .catch((e) => setLoadError(String(e)))
+      .finally(() => setLoading(false));
   };
-  useEffect(load, []);
+  useEffect(() => load(), []);
 
-  const act = (item: CatalogItem, update: boolean) => {
-    setWorking(item.id);
+  const opened = (info: ExtensionInfo | null | undefined) => {
+    if (info?.manifest) onSelect({ kind: "extension", id: info.manifest.id });
+  };
+  const act = (key: string, fn: () => Promise<void>) => {
+    setWorking(key);
+    setDone(null);
     run(async () => {
       try {
-        const info = await (update ? Catalog.Update(item.id) : Catalog.Install(item.id));
-        if (info?.manifest) onSelect({ kind: "extension", id: info.manifest.id });
+        await fn();
       } finally {
         setWorking(null);
         load();
       }
     });
   };
+  const install = (item: CatalogItem, update: boolean) =>
+    act(item.id, async () => opened(await (update ? Catalog.Update(item.id) : Catalog.Install(item.id))));
+  const updateAll = () =>
+    act("*", async () => {
+      const res = (await Catalog.UpdateAll()) ?? [];
+      const failed = res.filter((r) => r.error);
+      if (failed.length) throw new Error(failed.map((r) => `${r.name}: ${r.error}`).join("\n"));
+      setDone(`Updated ${res.map((r) => `${r.name} to ${r.version}`).join(", ")}.`);
+    });
+  const installFile = () =>
+    run(async () => {
+      const path = await Catalog.PickPackage();
+      if (!path) return;
+      setWorking("file");
+      try {
+        opened(await Catalog.InstallFile(path));
+      } finally {
+        setWorking(null);
+        load();
+      }
+    });
 
-  const items = view?.items ?? [];
+  const q = query.trim().toLowerCase();
+  const items = (view?.items ?? []).filter(
+    (i) => !q || [i.name, i.id, i.description].some((t) => t?.toLowerCase().includes(q)),
+  );
+  const updates = items.filter((i) => i.state === "update");
+  const available = items.filter((i) => i.state === "available" || i.state === "incompatible");
+  const installed = items.filter((i) => i.state === "installed" || i.state === "dev");
+  const list = (group: CatalogItem[]) => (
+    <ul className="catalog">
+      {group.map((item) => (
+        <li key={item.id} className={`catalog-item ${item.state}`}>
+          <span className="catalog-icon"><Icon name={iconFor(item.icon)} size={18} /></span>
+          <div className="catalog-body">
+            <div className="catalog-title">
+              <strong>{item.name}</strong>
+              <span className="catalog-version">
+                {item.state === "update" ? `${item.installedVersion} → ${item.version}` : item.version}
+              </span>
+            </div>
+            <p>{item.description}</p>
+            <p className="catalog-perms">{permSummary(item)}</p>
+          </div>
+          <CatalogAction item={item} working={working === item.id || (working === "*" && item.state === "update")}
+            disabled={busy} onInstall={() => install(item, false)} onUpdate={() => install(item, true)}
+            onOpen={() => onSelect({ kind: "extension", id: item.id })} />
+        </li>
+      ))}
+    </ul>
+  );
+
+  const checked = view?.fetchedAt && !view.fetchedAt.startsWith("0001") ? timeAgo(view.fetchedAt) : "";
   return (
     <>
       <div className="insp-kicker">DOCK AN EXTENSION</div>
@@ -783,67 +857,83 @@ function AddPanel({ refresh, onSelect }: Props) {
       </p>
 
       {view && !view.configured && (
-        <p className="hint">No extension catalog is configured. Set <code>NEXORA_REGISTRY_URL</code> to a catalog's <code>index.json</code>, or install from a folder below.</p>
+        <p className="hint">No extension catalog is configured. Set <code>NEXORA_REGISTRY_URL</code> to a catalog's <code>index.json</code>, or install a package file or folder below.</p>
       )}
       {loadError && (
-        <div className="insp-actions">
-          <p className="error">{loadError}</p>
-          <button className="btn" onClick={load}>Retry</button>
+        <div className="notice">
+          <span>Couldn't load the catalog: {loadError}</span>
+          <button className="btn" onClick={() => load(true)}>Retry</button>
+        </div>
+      )}
+      {view?.offline && (
+        <div className="notice">
+          <span>Can't reach the catalog right now, so this is the copy from {checked === "now" ? "just now" : `${checked} ago`}. Installing needs a connection.</span>
+          <button className="btn" disabled={loading} onClick={() => load(true)}>Retry</button>
         </div>
       )}
       {!view && !loadError && <p className="hint">Loading catalog…</p>}
       {error && <p className="error">{error}</p>}
+      {done && <p className="ok-note"><Icon name="check" size={14} /> {done}</p>}
 
-      {items.length > 0 && (
-        <ul className="catalog">
-          {items.map((item) => (
-            <li key={item.id} className="catalog-item">
-              <span className="catalog-icon"><Icon name={iconFor(item.icon)} size={18} /></span>
-              <div className="catalog-body">
-                <div className="catalog-title">
-                  <strong>{item.name}</strong>
-                  <span className="catalog-version">
-                    {item.state === "update" ? `${item.installedVersion} → ${item.version}` : item.version}
-                  </span>
-                </div>
-                <p>{item.description}</p>
-                <p className="catalog-perms">{permSummary(item)}</p>
-              </div>
-              <CatalogAction item={item} working={working === item.id} disabled={busy}
-                onInstall={() => act(item, false)} onUpdate={() => act(item, true)}
-                onOpen={() => onSelect({ kind: "extension", id: item.id })} />
-            </li>
-          ))}
-        </ul>
+      {view?.configured && (view.items?.length ?? 0) > 0 && (
+        <div className="catalog-bar">
+          <label className="search">
+            <Icon name="search" size={16} />
+            <span className="sr-only">Search extensions</span>
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search extensions" />
+          </label>
+          <button className="icon-btn" aria-label="Check the catalog again" title={checked ? `Checked ${checked === "now" ? "just now" : checked + " ago"}` : "Refresh"}
+            disabled={loading} onClick={() => load(true)}>
+            <span className={loading ? "spin" : ""}><Icon name="refresh" size={16} /></span>
+          </button>
+        </div>
       )}
 
-      <details className="catalog-folder">
-        <summary>Add an MCP server</summary>
-        <MCPForm busy={busy} onAdd={(spec) => run(async () => {
-          const info = await Extensions.AddMCPServer(spec);
-          if (info?.manifest) onSelect({ kind: "extension", id: info.manifest.id });
-        })} />
-      </details>
+      {updates.length > 0 && (
+        <Section title={`UPDATES · ${updates.length}`} aside={updates.length > 1 && (
+          <button className="btn primary" disabled={busy} onClick={updateAll}>{working === "*" ? "Updating…" : "Update all"}</button>
+        )}>
+          {list(updates)}
+        </Section>
+      )}
+      {available.length > 0 && <Section title="AVAILABLE">{list(available)}</Section>}
+      {installed.length > 0 && <Section title="INSTALLED">{list(installed)}</Section>}
+      {q && items.length === 0 && <p className="hint">No extensions match “{query.trim()}”.</p>}
 
-      <details className="catalog-folder">
-        <summary>Install from a folder</summary>
-        <form className="form"
-          onSubmit={(ev) => {
-            ev.preventDefault();
-            if (dir) run(async () => {
-              const info = await Extensions.Install(dir.trim());
-              if (info?.manifest) onSelect({ kind: "extension", id: info.manifest.id });
-            });
-          }}>
-          <label className="field">
-            <span>Extension folder (with nexora.json and a built dist/)</span>
-            <input value={dir} onChange={(e) => setDir(e.target.value)} placeholder="/home/you/my-extension" />
-          </label>
-          <div className="insp-actions">
-            <button className="btn" type="submit" disabled={busy || !dir}>Install folder</button>
-          </div>
-        </form>
-      </details>
+      <Section title="MORE WAYS TO ADD">
+        <div className="add-ways">
+          <button className="btn" disabled={busy} onClick={installFile}>
+            <Icon name="download" size={16} /> {working === "file" ? "Installing…" : "Install a package file…"}
+          </button>
+          <p className="hint">A <code>.nxext</code> or <code>.zip</code> extension package. Installing a newer version of an installed extension updates it and keeps its settings.</p>
+        </div>
+        <details className="catalog-folder">
+          <summary>Add an MCP server</summary>
+          <MCPForm busy={busy} onAdd={(spec) => run(async () => opened(await Extensions.AddMCPServer(spec)))} />
+        </details>
+        <details className="catalog-folder">
+          <summary>Install from a folder</summary>
+          <form className="form"
+            onSubmit={(ev) => {
+              ev.preventDefault();
+              if (dir) run(async () => opened(await Extensions.Install(dir.trim())));
+            }}>
+            <label className="field">
+              <span>Extension folder (with nexora.json and a built dist/)</span>
+              <div className="input-row">
+                <input value={dir} onChange={(e) => setDir(e.target.value)} placeholder="/home/you/my-extension" />
+                <button type="button" className="btn ghost" onClick={async () => {
+                  const picked = await Extensions.PickFolder("Choose an extension folder");
+                  if (picked) setDir(picked);
+                }}>Browse…</button>
+              </div>
+            </label>
+            <div className="insp-actions">
+              <button className="btn" type="submit" disabled={busy || !dir}>Install folder</button>
+            </div>
+          </form>
+        </details>
+      </Section>
       <p className="hint">Write your own with the SDK in the nexora-extensions repo.</p>
     </>
   );

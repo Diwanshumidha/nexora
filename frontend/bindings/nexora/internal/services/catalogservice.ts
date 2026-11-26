@@ -3,7 +3,12 @@
 
 /**
  * CatalogService lists the extension catalog and installs or updates
- * extensions from it.
+ * extensions from it, or from a package file.
+ * 
+ * The last catalog fetched is kept in memory and on disk, so the "+" panel
+ * opens instantly, works offline (showing the saved copy) and can flag
+ * updates without a network round trip. It is refreshed in the background
+ * every few hours.
  * @module
  */
 
@@ -27,11 +32,31 @@ export function Install(id: string): $CancellablePromise<extension$0.Info | null
 }
 
 /**
- * List fetches the catalog. When none is configured it returns
- * Configured=false rather than an error, so the UI can explain.
+ * InstallFile installs an extension package (.nxext or .zip) from disk. If
+ * that extension is already installed it is updated in place, unless the
+ * installed version is newer.
  */
-export function List(): $CancellablePromise<$models.CatalogView> {
-    return $Call.ByID(78543979);
+export function InstallFile(path: string): $CancellablePromise<extension$0.Info | null> {
+    return $Call.ByID(2256709044, path);
+}
+
+/**
+ * List returns the catalog, fetching it if the saved copy is older than
+ * catalogMaxAge or refresh is set. If the fetch fails but a saved copy
+ * exists, that copy is returned with Offline set. When no catalog is
+ * configured it returns Configured=false rather than an error, so the UI
+ * can explain.
+ */
+export function List(refresh: boolean): $CancellablePromise<$models.CatalogView> {
+    return $Call.ByID(78543979, refresh);
+}
+
+/**
+ * PickPackage opens the native file chooser for an extension package; ""
+ * means cancelled.
+ */
+export function PickPackage(): $CancellablePromise<string> {
+    return $Call.ByID(2581126774);
 }
 
 /**
@@ -40,4 +65,20 @@ export function List(): $CancellablePromise<$models.CatalogView> {
  */
 export function Update(id: string): $CancellablePromise<extension$0.Info | null> {
     return $Call.ByID(1120843138, id);
+}
+
+/**
+ * UpdateAll updates every installed extension that has a newer catalog
+ * version. One failure doesn't stop the others.
+ */
+export function UpdateAll(): $CancellablePromise<$models.UpdateResult[] | null> {
+    return $Call.ByID(501304409);
+}
+
+/**
+ * Updates lists installed extensions with a newer version in the saved
+ * catalog. It never touches the network, so the UI can poll it.
+ */
+export function Updates(): $CancellablePromise<$models.CatalogItem[] | null> {
+    return $Call.ByID(476605027);
 }

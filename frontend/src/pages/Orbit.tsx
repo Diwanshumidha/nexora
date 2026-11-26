@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CodeMode, Connect, Extensions, History, Network, Permissions, type Approval, type ConnectInfo } from "../lib/api";
+import { Catalog, CodeMode, Connect, Extensions, History, Network, Permissions, type Approval, type ConnectInfo } from "../lib/api";
 import { useLive } from "../lib/useLive";
 import { Inspector } from "../orbit/Inspector";
 import { OrbitMap, type Selection } from "../orbit/OrbitMap";
@@ -24,6 +24,8 @@ export default function OrbitPage({ selected, onSelect: setSelected, approvals, 
   const [history, refreshHist] = useLive(async () => (await History.Summaries(50)) ?? [], 3000, []);
   const [stats, refreshStats] = useLive(() => CodeMode.QueueStats(), 3000, null);
   const [modes, refreshModes] = useLive(async () => (await Permissions.Modes()) ?? {}, 5000, {});
+  // From the saved catalog (no network); the backend re-checks every few hours.
+  const [updates, refreshUpdates] = useLive(async () => (await Catalog.Updates()) ?? [], 30000, []);
 
   useEffect(() => {
     Connect.Info().then(setConnect);
@@ -35,6 +37,7 @@ export default function OrbitPage({ selected, onSelect: setSelected, approvals, 
     refreshHist();
     refreshStats();
     refreshModes();
+    refreshUpdates();
     refreshApprovals();
   };
 
@@ -55,13 +58,14 @@ export default function OrbitPage({ selected, onSelect: setSelected, approvals, 
           </div>
           <button className="btn primary" onClick={() => setSelected({ kind: "add" })}>
             <Icon name="plus" size={18} /> Add extension
+            {updates.length > 0 && <span className="count" title={`${updates.length} update${updates.length > 1 ? "s" : ""} available`}>{updates.length}</span>}
           </button>
         </header>
-        <OrbitMap network={network} extensions={extensions} history={history} modes={modes} approvals={approvals}
+        <OrbitMap network={network} extensions={extensions} history={history} modes={modes} approvals={approvals} updates={updates.length}
           selected={selected} onSelect={setSelected} onOpenHistory={() => onOpenHistory()} />
       </main>
       <Inspector selected={selected} onSelect={setSelected} connect={connect} stats={stats} approvals={approvals} onOpenRun={onOpenRun}
-        network={network} extensions={extensions} history={history} refresh={refresh} />
+        network={network} extensions={extensions} history={history} updates={updates} refresh={refresh} />
     </div>
   );
 }

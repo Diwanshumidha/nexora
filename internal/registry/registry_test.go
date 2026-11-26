@@ -103,3 +103,40 @@ func TestRefusesPlainHTTPOffLoopback(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestOpenArchive(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name string, files map[string]string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, makeZip(t, files), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	// As published, and as made by zipping the extension's folder.
+	for _, p := range []string{
+		write("flat.nxext", map[string]string{"nexora.json": manifest, "dist/index.js": "export {}"}),
+		write("nested.zip", map[string]string{"demo/nexora.json": manifest, "demo/dist/index.js": "export {}"}),
+	} {
+		got, man, cleanup, err := OpenArchive(p)
+		if err != nil {
+			t.Fatalf("%s: %v", p, err)
+		}
+		if man.ID != "demo" {
+			t.Fatalf("%s: manifest %+v", p, man)
+		}
+		if _, err := os.Stat(filepath.Join(got, "dist", "index.js")); err != nil {
+			t.Fatalf("%s: %v", p, err)
+		}
+		cleanup()
+	}
+	for p, want := range map[string]string{
+		write("evil.nxext", map[string]string{"../x": "boom"}):    "unsafe entry",
+		write("empty.zip", map[string]string{"readme.txt": "hi"}): "nexora.json",
+		write("notes.txt", map[string]string{"a": "b"}):           "not an extension package",
+	} {
+		if _, _, _, err := OpenArchive(p); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: err %v, want %q", filepath.Base(p), err, want)
+		}
+	}
+}

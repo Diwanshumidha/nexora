@@ -19,6 +19,8 @@ interface Props {
   /** Permission mode per extension id. */
   modes: Record<string, string | undefined>;
   approvals: Approval[];
+  /** Installed extensions with a catalog update, badged on the add slot. */
+  updates: number;
   selected: Selection;
   onSelect: (s: Selection) => void;
   /** Opens the History tab; shown as an "all runs" node when there are more. */
@@ -76,7 +78,7 @@ interface Placed {
 
 export const MODE_LABEL: Record<string, string> = { trusted: "trusted", ask: "ask first", readonly: "read only" };
 
-export const OrbitMap = memo(function OrbitMap({ network, extensions, history, modes, approvals, selected, onSelect, onOpenHistory }: Props) {
+export const OrbitMap = memo(function OrbitMap({ network, extensions, history, modes, approvals, updates, selected, onSelect, onOpenHistory }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const size = useSize(box);
   const S = Math.max(size, 360);
@@ -239,8 +241,10 @@ export const OrbitMap = memo(function OrbitMap({ network, extensions, history, m
           if (p.sel.kind === "add") {
             return (
               <button key="add" className={`node-add ${isSel(p.sel) ? "selected" : ""}`} style={{ left: p.x, top: p.y }}
-                aria-label="Add an extension" onClick={() => onSelect(p.sel)}>
+                aria-label={updates ? `Add an extension (${updates} update${updates > 1 ? "s" : ""} available)` : "Add an extension"}
+                onClick={() => onSelect(p.sel)}>
                 <Icon name="plus" />
+                {updates > 0 && <span className="step" aria-hidden="true">{updates}</span>}
               </button>
             );
           }

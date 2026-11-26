@@ -163,7 +163,7 @@ func main() {
 	// Services start in this order and stop in reverse.
 	for _, s := range []application.Service{
 		application.NewService(services.NewExtensionService(mgr, perms, logger)),
-		application.NewService(services.NewCatalogService(mgr, registry.New(cfg.RegistryURL), logger)),
+		application.NewService(services.NewCatalogService(mgr, registry.New(cfg.RegistryURL), filepath.Join(cfg.DataDir, "catalog.json"), logger)),
 		application.NewService(services.NewPermissionsService(perms, run.Gate(), mgr)),
 		application.NewService(services.NewAskWindow(run.Gate(), logger)),
 		application.NewService(services.NewCodeModeService(run)),

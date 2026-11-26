@@ -114,25 +114,65 @@ func (c *Client) Download(ctx context.Context, e Entry) (dir string, cleanup fun
 		return "", nil, fmt.Errorf("download %s: checksum mismatch; refusing to install", e.ID)
 	}
 
-	dir, err = os.MkdirTemp("", "nexora-ext-"+e.ID+"-")
+	dir, man, cleanup, err := unpack(data, e.ID)
 	if err != nil {
 		return "", nil, err
-	}
-	cleanup = func() { _ = os.RemoveAll(dir) }
-	if err := unzip(data, dir); err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("unpack %s: %w", e.ID, err)
-	}
-	man, err := extension.LoadManifest(dir)
-	if err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("%s: %w", e.ID, err)
 	}
 	if man.ID != e.ID || man.Version != e.Version {
 		cleanup()
 		return "", nil, fmt.Errorf("%s: package contains %s %s, catalog says %s %s", e.ID, man.ID, man.Version, e.ID, e.Version)
 	}
 	return dir, cleanup, nil
+}
+
+// OpenArchive unpacks a local extension package (the zip a catalog
+// publishes, as .zip or renamed .nxext) into a new temporary folder, with the same limits as a
+// download. There is no checksum to check: the user chose the file.
+func OpenArchive(path string) (dir string, man *extension.Manifest, cleanup func(), err error) {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext != ".nxext" && ext != ".zip" {
+		return "", nil, nil, fmt.Errorf("%s is not an extension package (.nxext or .zip)", filepath.Base(path))
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxZipBytes+1))
+	if err != nil {
+		return "", nil, nil, err
+	}
+	if len(data) > maxZipBytes {
+		return "", nil, nil, fmt.Errorf("%s is larger than %d MB", filepath.Base(path), maxZipBytes>>20)
+	}
+	return unpack(data, "archive")
+}
+
+// unpack extracts a package zip into a temporary folder and loads its
+// manifest. A zip with everything inside one top-level folder (as made by
+// zipping the folder itself) is accepted too.
+func unpack(data []byte, label string) (dir string, man *extension.Manifest, cleanup func(), err error) {
+	tmp, err := os.MkdirTemp("", "nexora-ext-"+label+"-")
+	if err != nil {
+		return "", nil, nil, err
+	}
+	cleanup = func() { _ = os.RemoveAll(tmp) }
+	if err := unzip(data, tmp); err != nil {
+		cleanup()
+		return "", nil, nil, fmt.Errorf("unpack %s: %w", label, err)
+	}
+	dir = tmp
+	if _, err := os.Stat(filepath.Join(tmp, extension.ManifestFile)); errors.Is(err, os.ErrNotExist) {
+		if ents, _ := os.ReadDir(tmp); len(ents) == 1 && ents[0].IsDir() {
+			dir = filepath.Join(tmp, ents[0].Name())
+		}
+	}
+	man, err = extension.LoadManifest(dir)
+	if err != nil {
+		cleanup()
+		return "", nil, nil, fmt.Errorf("%s: %w", label, err)
+	}
+	return dir, man, cleanup, nil
 }
 
 // resolve makes a catalog URL absolute, relative to the index.

@@ -99,10 +99,11 @@ func TestCatalogInstallAndUpdate(t *testing.T) {
 	must(os.MkdirAll(cfg.ExtensionsDir, 0o755))
 	mgr := extension.NewManager(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	defer mgr.StopAll(context.Background())
-	svc := NewCatalogService(mgr, registry.New(srv.URL+"/index.json"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	saved := filepath.Join(data, "catalog.json")
+	svc := NewCatalogService(mgr, registry.New(srv.URL+"/index.json"), saved, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ctx := context.Background()
 	state := func() string {
-		view, err := svc.List(ctx)
+		view, err := svc.List(ctx, true)
 		must(err)
 		return view.Items[0].State
 	}
@@ -146,5 +147,39 @@ func TestCatalogInstallAndUpdate(t *testing.T) {
 	}
 	if s := state(); s != "installed" {
 		t.Fatalf("after update: %s", s)
+	}
+
+	if u := svc.Updates(); len(u) != 0 {
+		t.Fatalf("updates after update: %+v", u)
+	}
+
+	// A package file: an older one is refused, a newer one updates in place.
+	pkg := func(version string, data []byte) string {
+		path := filepath.Join(t.TempDir(), "csv-"+version+".nxext")
+		must(os.WriteFile(path, data, 0o644))
+		return path
+	}
+	if _, err := svc.InstallFile(ctx, pkg("0.1.0", zipV1)); err == nil || !strings.Contains(err.Error(), "newer") {
+		t.Fatalf("downgrade from file: %v", err)
+	}
+	info, err = svc.InstallFile(ctx, pkg("0.3.0", bumpVersion(t, zipV1, "0.3.0")))
+	must(err)
+	if info.Manifest.Version != "0.3.0" || info.Status != extension.StatusRunning {
+		t.Fatalf("file update: %s %s %s", info.Manifest.Version, info.Status, info.Error)
+	}
+
+	// Offline: the saved copy is shown, flagged, here and after a restart.
+	srv.Close()
+	view, err := svc.List(ctx, true)
+	must(err)
+	if !view.Offline || len(view.Items) != 1 || view.FetchedAt.IsZero() {
+		t.Fatalf("offline view: %+v", view)
+	}
+	restarted := NewCatalogService(mgr, registry.New(srv.URL+"/index.json"), saved, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	restarted.loadSaved()
+	view, err = restarted.List(ctx, false)
+	must(err)
+	if len(view.Items) != 1 || view.Items[0].Version != "0.2.0" {
+		t.Fatalf("saved catalog after restart: %+v", view)
 	}
 }

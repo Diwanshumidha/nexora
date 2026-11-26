@@ -45,6 +45,23 @@ export interface CatalogView {
     "configured": boolean;
     "source": string;
     "items": CatalogItem[] | null;
+
+    /**
+     * FetchedAt is when the catalog shown was downloaded (zero if never).
+     */
+    "fetchedAt": string;
+
+    /**
+     * Offline means the latest fetch failed and Items come from the saved
+     * copy; Error says why.
+     */
+    "offline": boolean;
+    "error"?: string;
+
+    /**
+     * Updates counts installed extensions with a newer catalog version.
+     */
+    "updates": number;
 }
 
 /**
@@ -166,4 +183,14 @@ export interface ToolPermission {
      * Override is the per-tool setting; empty means "follow the mode".
      */
     "override"?: permissions$0.Decision;
+}
+
+/**
+ * UpdateResult is the outcome of one update in UpdateAll.
+ */
+export interface UpdateResult {
+    "id": string;
+    "name": string;
+    "version": string;
+    "error"?: string;
 }

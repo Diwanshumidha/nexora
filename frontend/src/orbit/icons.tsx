@@ -37,6 +37,8 @@ export const icons = {
   chevronRight: "M9 6l6 6-6 6",
   search: "M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14M20 20l-4-4",
   history: "M3 12a9 9 0 1 0 3-6.7M3 4v4h4M12 8v4l3 2",
+  download: "M12 4v11M7 10l5 5 5-5M5 20h14",
+  database: "M4 6a8 3 0 1 0 16 0a8 3 0 1 0-16 0M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
 } as const;
 
 export type IconName = keyof typeof icons;

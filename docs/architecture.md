@@ -28,7 +28,14 @@ file. The manager discovers them from:
 
 Users install and update extensions from a catalog (`internal/registry`): the
 `index.json` of a nexora-extensions release, with each zip verified against
-its SHA-256 before it is unpacked.
+its SHA-256 before it is unpacked. `CatalogService` keeps the last catalog in
+memory and in `catalog.json` (keyed by its URL): `List` answers from it while
+it is under 15 minutes old and falls back to it, flagged `offline`, when a
+fetch fails. A background check every 6 hours refreshes it, and `Updates`
+reads only the saved copy, so the UI can poll for update badges without
+network traffic. Package files (`.nxext`/`.zip`) go through the same
+unpacking limits (`registry.OpenArchive`), accepting a single top-level
+folder, and update an installed extension unless that would downgrade it.
 
 ### Isolation
 
@@ -125,6 +132,23 @@ back through the model.
    are `console` (captured) and `tools.<namespace>.<tool>()`, which proxy to
    `Manager.CallTool`.
 
+### tools.store
+
+`internal/cache` is a persistent key-value cache exposed to every script as
+`tools.store` (the namespace is reserved). The runner routes `store` calls to
+it before the permission gate, so they need no approval, but they are still
+recorded in the run's timeline. Its API is generated from ordinary
+`ToolSpec`s, so the model sees it in `get_api` like any extension.
+
+Cleanup is built in rather than left to scripts: every entry has a TTL
+(default 1 day, max 30 days); a write that would exceed the size or entry
+budget evicts expired entries, then the least recently used; a sweeper drops
+expired entries every minute; and loading drops anything that expired while
+the app was closed (and clamps stored expiries to the current maximum).
+Writes to `cache.json` are batched (1 s) and atomic; reads update the LRU
+time in memory and are persisted with the next write. A damaged file is set
+aside and the cache starts empty.
+
 ### Tool call performance
 
 - **Parallel calls.** goja is single-threaded, so each run drives a small
@@ -211,5 +235,6 @@ ChatGPT ──https──▶ tailscaled (Funnel) ─┐
   client ID in the manifest).
 - Optional OS-level sandboxing for local MCP servers (bubblewrap, sandbox-exec).
 - Per-run permission prompts and an audit log of tool calls.
-- Install extensions from a registry or an archive (`.nxext`), with signature checks.
+- Signed catalogs and packages, so a compromised download host can't serve
+  a different build with matching checksums.
 - Chat UI plus an LLM provider layer that drives Code Mode.

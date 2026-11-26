@@ -22,6 +22,7 @@ export type {
   ConnectInfo,
   StorageEntry,
   StorageView,
+  UpdateResult,
   ExtensionPermissions,
   NetworkEndpoint,
   ToolPermission,

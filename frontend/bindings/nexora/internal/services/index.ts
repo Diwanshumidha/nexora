@@ -32,5 +32,6 @@ export type {
     StorageEntry,
     StorageView,
     Summary,
-    ToolPermission
+    ToolPermission,
+    UpdateResult
 } from "./models.js";
