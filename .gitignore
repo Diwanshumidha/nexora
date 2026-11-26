@@ -5,3 +5,8 @@ frontend/dist
 frontend/node_modules
 node_modules
 .preview
+
+# AppImage packaging output (wails3 task package)
+build/linux/appimage/build/
+build/linux/appimage/nexora
+build/linux/appimage/nexora.png
