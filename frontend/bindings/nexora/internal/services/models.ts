@@ -59,6 +59,12 @@ export interface CatalogView {
     "error"?: string;
 
     /**
+     * Stale means the saved copy is older than catalogMaxAge; the UI shows
+     * it and refreshes in the background.
+     */
+    "stale": boolean;
+
+    /**
      * Updates counts installed extensions with a newer catalog version.
      */
     "updates": number;

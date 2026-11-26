@@ -773,9 +773,16 @@ function AddPanel({ refresh, onSelect }: Props) {
     setLoading(true);
     setLoadError(null);
     Catalog.List(force)
-      .then(setView)
-      .catch((e) => setLoadError(String(e)))
-      .finally(() => setLoading(false));
+      .then((v) => {
+        setView(v);
+        // An old saved copy shows at once; fetch a fresh one behind it.
+        if (v.stale && !force) load(true);
+        else setLoading(false);
+      })
+      .catch((e) => {
+        setLoadError(String(e));
+        setLoading(false);
+      });
   };
   useEffect(() => load(), []);
 
@@ -825,24 +832,10 @@ function AddPanel({ refresh, onSelect }: Props) {
   const installed = items.filter((i) => i.state === "installed" || i.state === "dev");
   const list = (group: CatalogItem[]) => (
     <ul className="catalog">
-      {group.map((item) => (
-        <li key={item.id} className={`catalog-item ${item.state}`}>
-          <span className="catalog-icon"><Icon name={iconFor(item.icon)} size={18} /></span>
-          <div className="catalog-body">
-            <div className="catalog-title">
-              <strong>{item.name}</strong>
-              <span className="catalog-version">
-                {item.state === "update" ? `${item.installedVersion} → ${item.version}` : item.version}
-              </span>
-            </div>
-            <p>{item.description}</p>
-            <p className="catalog-perms">{permSummary(item)}</p>
-          </div>
-          <CatalogAction item={item} working={working === item.id || (working === "*" && item.state === "update")}
-            disabled={busy} onInstall={() => install(item, false)} onUpdate={() => install(item, true)}
-            onOpen={() => onSelect({ kind: "extension", id: item.id })} />
-        </li>
-      ))}
+      {group.map((item) => <CatalogRow key={item.id} item={item}
+        working={working === item.id || (working === "*" && item.state === "update")} disabled={busy}
+        onInstall={() => install(item, false)} onUpdate={() => install(item, true)}
+        onOpen={() => onSelect({ kind: "extension", id: item.id })} />)}
     </ul>
   );
 
@@ -852,8 +845,8 @@ function AddPanel({ refresh, onSelect }: Props) {
       <div className="insp-kicker">DOCK AN EXTENSION</div>
       <Head icon="plus" title="Add extension" tone="ext" />
       <p className="insp-desc">
-        Each extension runs in its own sandboxed process and only gets the permissions listed here. Downloads are
-        checked against the catalog's checksum before anything is installed.
+        Extensions run in their own sandbox and can only reach what's listed under each one. Every download is
+        checked against the catalog before it's installed.
       </p>
 
       {view && !view.configured && (
@@ -896,13 +889,13 @@ function AddPanel({ refresh, onSelect }: Props) {
           {list(updates)}
         </Section>
       )}
-      {available.length > 0 && <Section title="AVAILABLE">{list(available)}</Section>}
-      {installed.length > 0 && <Section title="INSTALLED">{list(installed)}</Section>}
+      {available.length > 0 && <Section title={`AVAILABLE · ${available.length}`}>{list(available)}</Section>}
+      {installed.length > 0 && <Section title={`INSTALLED · ${installed.length}`}>{list(installed)}</Section>}
       {q && items.length === 0 && <p className="hint">No extensions match “{query.trim()}”.</p>}
 
       <Section title="MORE WAYS TO ADD">
         <div className="add-ways">
-          <button className="btn" disabled={busy} onClick={installFile}>
+          <button className="btn ghost" disabled={busy} onClick={installFile}>
             <Icon name="download" size={16} /> {working === "file" ? "Installing…" : "Install a package file…"}
           </button>
           <p className="hint">A <code>.nxext</code> or <code>.zip</code> extension package. Installing a newer version of an installed extension updates it and keeps its settings.</p>
@@ -1006,34 +999,72 @@ function MCPForm({ busy, onAdd }: { busy: boolean; onAdd: (spec: MCPServerSpec) 
   );
 }
 
-function CatalogAction({ item, working, disabled, onInstall, onUpdate, onOpen }: {
+interface RowProps {
   item: CatalogItem; working: boolean; disabled: boolean;
   onInstall: () => void; onUpdate: () => void; onOpen: () => void;
-}) {
+}
+
+/** One catalog entry: what it is, what it can reach, and the one action
+ *  that fits its state. Clicking the text shows the full description. */
+function CatalogRow({ item, ...action }: RowProps) {
+  const [open, setOpen] = useState(false);
+  const access = accessOf(item);
+  return (
+    <li className={`catalog-item ${item.state}`}>
+      <span className="catalog-icon"><Icon name={iconFor(item.icon)} size={18} /></span>
+      <button className={`catalog-body ${open ? "open" : ""}`} aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="catalog-title">
+          <strong>{item.name}</strong>
+          <span className="catalog-version">
+            {item.state === "update" ? <>{item.installedVersion} <span aria-label="to">→</span> {item.version}</> : item.version}
+          </span>
+        </span>
+        <span className="catalog-desc">{item.description}</span>
+        <span className="catalog-access">
+          {access.length === 0 ? (
+            <span className="access-none"><Icon name="shield" size={13} /> Sandbox only</span>
+          ) : access.map((a) => <span key={a} className="access-tag">{a}</span>)}
+          <span className="catalog-size">{fileSize(item.size)}</span>
+        </span>
+      </button>
+      <CatalogAction item={item} {...action} />
+    </li>
+  );
+}
+
+function CatalogAction({ item, working, disabled, onInstall, onUpdate, onOpen }: RowProps) {
   switch (item.state) {
     case "available":
-      return <button className="btn primary" disabled={disabled} onClick={onInstall}>{working ? "Installing…" : "Install"}</button>;
+      return <button className="btn ghost catalog-btn" disabled={disabled} onClick={onInstall}>{working ? "Installing…" : "Install"}</button>;
     case "update":
-      return <button className="btn primary" disabled={disabled} onClick={onUpdate}>{working ? "Updating…" : "Update"}</button>;
+      return <button className="btn primary catalog-btn" disabled={disabled} onClick={onUpdate}>{working ? "Updating…" : "Update"}</button>;
     case "installed":
-      return <button className="btn" onClick={onOpen}>Open</button>;
+      return (
+        <span className="catalog-installed">
+          <span><Icon name="check" size={13} /> Installed</span>
+          <button className="link" onClick={onOpen}>Open</button>
+        </span>
+      );
     case "dev":
       return <span className="badge tone-net" title="Loaded from a development folder; rebuild it there">dev</span>;
     default:
-      return <span className="badge tone-error" title="Needs a newer version of Nexora">needs update</span>;
+      return <span className="catalog-note" title="Needs a newer version of Nexora">Needs a newer Nexora</span>;
   }
 }
 
-/** What an extension may touch, in plain words. */
-function permSummary(item: CatalogItem): string {
+/** What an extension can reach beyond its sandbox, in plain words. */
+function accessOf(item: CatalogItem): string[] {
   const p = item.permissions;
-  const parts: string[] = [];
-  if (p?.network) parts.push("internet");
-  if (p?.childProcess) parts.push("runs programs");
-  if (p?.fsWrite?.length) parts.push("writes files");
-  else if (p?.fsRead?.length) parts.push("reads files");
-  const size = item.size > 1 << 20 ? `${(item.size / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(item.size / 1024))} KB`;
-  return `${parts.length ? parts.join(" · ") : "sandboxed, no extra access"} · ${size}`;
+  const out: string[] = [];
+  if (p?.network) out.push("Internet");
+  if (p?.childProcess) out.push("Runs programs");
+  if (p?.fsWrite?.length) out.push("Writes files");
+  else if (p?.fsRead?.length) out.push("Reads files");
+  return out;
+}
+
+function fileSize(n: number): string {
+  return n > 1 << 20 ? `${(n / (1 << 20)).toFixed(1)}\u00a0MB` : `${Math.max(1, Math.round(n / 1024))}\u00a0KB`;
 }
 
 /* -------------------------------------------------------------- shared */

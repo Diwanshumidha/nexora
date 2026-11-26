@@ -179,7 +179,7 @@ func TestCatalogInstallAndUpdate(t *testing.T) {
 	restarted.loadSaved()
 	view, err = restarted.List(ctx, false)
 	must(err)
-	if len(view.Items) != 1 || view.Items[0].Version != "0.2.0" {
+	if len(view.Items) != 1 || view.Items[0].Version != "0.2.0" || view.Offline {
 		t.Fatalf("saved catalog after restart: %+v", view)
 	}
 }

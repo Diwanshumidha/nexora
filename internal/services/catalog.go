@@ -41,8 +41,8 @@ type CatalogService struct {
 }
 
 const (
-	// catalogMaxAge is how long a fetched catalog is used before List
-	// fetches again.
+	// catalogMaxAge is how long a fetched catalog counts as current: older
+	// copies are shown but flagged Stale, and installs fetch afresh.
 	catalogMaxAge = 15 * time.Minute
 	// updateCheckEvery is how often the catalog is refreshed in the
 	// background to notice updates.
@@ -104,22 +104,26 @@ type CatalogView struct {
 	// copy; Error says why.
 	Offline bool   `json:"offline"`
 	Error   string `json:"error,omitempty"`
+	// Stale means the saved copy is older than catalogMaxAge; the UI shows
+	// it and refreshes in the background.
+	Stale bool `json:"stale"`
 	// Updates counts installed extensions with a newer catalog version.
 	Updates int `json:"updates"`
 }
 
-// List returns the catalog, fetching it if the saved copy is older than
-// catalogMaxAge or refresh is set. If the fetch fails but a saved copy
-// exists, that copy is returned with Offline set. When no catalog is
-// configured it returns Configured=false rather than an error, so the UI
-// can explain.
+// List returns the catalog. Without refresh it answers from the saved copy
+// when there is one, however old, so the panel opens instantly; Stale then
+// tells the UI to ask again with refresh. With refresh (or no saved copy)
+// it fetches; if that fails but a saved copy exists, the copy is returned
+// with Offline set. When no catalog is configured it returns
+// Configured=false rather than an error, so the UI can explain.
 func (s *CatalogService) List(ctx context.Context, refresh bool) (CatalogView, error) {
 	view := CatalogView{Configured: s.reg.IndexURL != "", Source: s.reg.IndexURL, Items: []CatalogItem{}}
 	if !view.Configured {
 		return view, nil
 	}
 	cat, fetchedAt := s.saved()
-	if refresh || cat == nil || time.Since(fetchedAt) > catalogMaxAge {
+	if refresh || cat == nil {
 		fresh, err := s.refresh(ctx)
 		switch {
 		case err == nil:
@@ -131,6 +135,7 @@ func (s *CatalogService) List(ctx context.Context, refresh bool) (CatalogView, e
 		}
 	}
 	view.FetchedAt = fetchedAt
+	view.Stale = !view.Offline && time.Since(fetchedAt) > catalogMaxAge
 	view.Items = s.items(cat)
 	for _, it := range view.Items {
 		if it.State == "update" {

@@ -41,11 +41,12 @@ export function InstallFile(path: string): $CancellablePromise<extension$0.Info 
 }
 
 /**
- * List returns the catalog, fetching it if the saved copy is older than
- * catalogMaxAge or refresh is set. If the fetch fails but a saved copy
- * exists, that copy is returned with Offline set. When no catalog is
- * configured it returns Configured=false rather than an error, so the UI
- * can explain.
+ * List returns the catalog. Without refresh it answers from the saved copy
+ * when there is one, however old, so the panel opens instantly; Stale then
+ * tells the UI to ask again with refresh. With refresh (or no saved copy)
+ * it fetches; if that fails but a saved copy exists, the copy is returned
+ * with Offline set. When no catalog is configured it returns
+ * Configured=false rather than an error, so the UI can explain.
  */
 export function List(refresh: boolean): $CancellablePromise<$models.CatalogView> {
     return $Call.ByID(78543979, refresh);

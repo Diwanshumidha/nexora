@@ -506,19 +506,48 @@ kbd { font: 500 10px var(--mono); padding: 2px 5px; border-radius: 4px; backgrou
 .perf-nogrid * { background-image: none !important; }
 
 /* ---------- extension catalog ---------- */
-.catalog { list-style: none; margin: 4px 0 12px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.catalog-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line-2); }
-.catalog-icon { width: 32px; height: 32px; flex: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line-2); color: var(--text-2); }
-.catalog-body { flex: 1; min-width: 0; }
-.catalog-body p { margin: 2px 0 0; font-size: 12px; color: var(--text-2); line-height: 1.4; }
-.catalog-title { display: flex; gap: 6px; align-items: baseline; }
-.catalog-version { font: 11px var(--mono); color: var(--text-3, var(--text-2)); }
-.catalog-perms { font: 11px var(--mono) !important; opacity: 0.8; }
-.catalog-item .btn, .catalog-item .badge { flex: none; align-self: center; }
+/* One list, hairline rows: what each extension can reach is the thing to read. */
+.catalog { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.catalog-item { display: flex; gap: 12px; align-items: flex-start; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.catalog-icon {
+  width: 34px; height: 34px; flex: none; border-radius: 50%; margin-top: 1px;
+  display: flex; align-items: center; justify-content: center; border: 1px solid var(--line-2); color: var(--text-2);
+}
+.catalog-item.update .catalog-icon { border-color: var(--accent); color: var(--accent); }
+.catalog-body {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px;
+  background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.catalog-title { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.catalog-title strong { font-size: 14px; font-weight: 600; color: var(--text); }
+.catalog-version { font: 12px var(--mono); color: var(--muted); }
+.catalog-item.update .catalog-version { color: var(--accent); }
+.catalog-desc {
+  font-size: 12.5px; line-height: 1.5; color: var(--text-2);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.catalog-body.open .catalog-desc { -webkit-line-clamp: unset; }
+.catalog-body:hover .catalog-desc { color: var(--text); }
+.catalog-access { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; font-size: 11.5px; }
+.access-none { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.access-tag {
+  padding: 1px 7px; border-radius: 99px; color: var(--pending);
+  background: color-mix(in srgb, var(--pending) 12%, transparent);
+}
+.catalog-size { color: var(--faint); margin-left: auto; white-space: nowrap; }
+.catalog-btn { height: 30px; padding: 0 12px; font-size: 12.5px; flex: none; }
+.catalog-installed { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; font-size: 12px; color: var(--muted); }
+.catalog-installed > span { display: inline-flex; align-items: center; gap: 4px; }
+.catalog-installed .link { font-size: 12.5px; }
+.catalog-note { flex: none; max-width: 96px; font-size: 11.5px; color: var(--error); text-align: right; }
+.catalog-item .badge { flex: none; }
 .catalog-folder { margin: 8px 0; font-size: 13px; }
-.catalog-bar { display: flex; gap: 8px; align-items: center; }
+/* Pinned to the top of the inspector while the list scrolls under it. */
+.catalog-bar {
+  display: flex; gap: 8px; align-items: center;
+  position: sticky; top: -24px; z-index: 1; margin: -8px 0; padding: 8px 0; background: var(--panel);
+}
 .catalog-bar .search { flex: 1; }
-.catalog-item.update { border-color: color-mix(in srgb, var(--accent) 45%, var(--line-2)); }
 .insp-label .btn { height: 26px; padding: 0 10px; font-size: 12px; }
 .add-ways { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .input-row { display: flex; gap: 6px; }
