@@ -502,7 +502,6 @@ const MODES: { mode: Mode; label: string; help: string }[] = [
   { mode: Mode.ModeReadOnly, label: "Read only", help: "Read-only tools run; everything else is blocked." },
 ];
 
-const DECISION_LABEL: Record<string, string> = { allow: "Runs", ask: "Asks you", deny: "Blocked" };
 
 function TrustSection({ extId, runsCount, refresh }: { extId: string; runsCount: number; refresh: () => void }) {
   const [perms, setPerms] = useState<ExtensionPermissions | null>(null);
@@ -540,17 +539,37 @@ function TrustSection({ extId, runsCount, refresh }: { extId: string; runsCount:
 
       <Section title="TOOLS" aside={<span className="muted">{runsCount} recent runs</span>}>
         {(perms.tools ?? []).length === 0 && <p className="hint">Start the extension to see its tools.</p>}
-        <ul className="tool-list">
-          {(perms.tools ?? []).map((t) => (
-            <ToolRow key={t.name} t={t} mode={perms.mode}
-              onSet={(d) => apply(() => Permissions.SetTool(extId, t.name, d))} />
-          ))}
-        </ul>
+        {TOOL_GROUPS.map((g) => {
+          const tools = (perms.tools ?? []).filter((t) => t.readOnly === g.readOnly);
+          if (tools.length === 0) return null;
+          const rule = MODE_DEFAULT(perms.mode, g.readOnly);
+          return (
+            <div key={g.title} className="tool-group">
+              <div className="tool-group-head">
+                <span>{g.title}</span>
+                <span className={`tool-rule rule-${rule}`}><Icon name={CHOICE_ICON[rule]} size={13} stroke={2} /> {RULE_LABEL[rule]}</span>
+              </div>
+              <ul className="tool-list">
+                {tools.map((t) => (
+                  <ToolRow key={t.name} t={t} rule={rule}
+                    onSet={(d) => apply(() => Permissions.SetTool(extId, t.name, d))} />
+                ))}
+              </ul>
+            </div>
+          );
+        })}
         {error && <p className="error">{error}</p>}
       </Section>
     </>
   );
 }
+
+const TOOL_GROUPS = [
+  { title: "Read only", readOnly: true },
+  { title: "Make changes", readOnly: false },
+];
+const RULE_LABEL: Record<string, string> = { allow: "Run without asking", ask: "Ask you first", deny: "Blocked" };
+const CHOICE_ICON: Record<string, IconName> = { allow: "check", ask: "hand", deny: "ban" };
 
 const CHOICES: { d: Decision; label: string; icon: IconName; help: string }[] = [
   { d: Decision.Allow, label: "Allow", icon: "check", help: "Runs without asking" },
@@ -558,39 +577,37 @@ const CHOICES: { d: Decision; label: string; icon: IconName; help: string }[] = 
   { d: Decision.Deny, label: "Block", icon: "ban", help: "Never runs; hidden from the AI" },
 ];
 
-function ToolRow({ t, mode, onSet }: { t: ToolPermission; mode: Mode; onSet: (d: Decision) => void }) {
-  const fallback = MODE_DEFAULT(mode, t.readOnly);
+/** One tool. The group header states the trust level's rule; a row only
+ *  stands out when you've made an exception for it. */
+function ToolRow({ t, rule, onSet }: { t: ToolPermission; rule: string; onSet: (d: Decision) => void }) {
+  const [open, setOpen] = useState(false);
   const custom = !!t.override;
-  const modeName = MODES.find((m) => m.mode === mode)?.label ?? mode;
   return (
-    <li className="tool">
-      <div className="tool-head">
-        <span className="mono tool-name">{t.name}()</span>
-        <Badge tone={t.readOnly ? "net" : "pending"}>{t.readOnly ? "READ" : "WRITE"}</Badge>
-      </div>
-      {t.description && <p className="tool-desc">{t.description}</p>}
+    <li className={`tool ${custom ? "custom" : ""}`}>
+      <button className={`tool-text ${open ? "open" : ""}`} aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="mono tool-name">{t.name}</span>
+        {t.description && <span className="tool-desc">{t.description}</span>}
+      </button>
       <div className="tool-perm">
+        {custom && (
+          <button className="icon-btn small tool-reset" onClick={() => onSet(Decision.$zero)}
+            aria-label={`Reset ${t.name} to the default (${RULE_LABEL[rule].toLowerCase()})`}
+            title={`Back to the default: ${RULE_LABEL[rule].toLowerCase()}`}>
+            <Icon name="refresh" size={13} />
+          </button>
+        )}
         <div role="radiogroup" aria-label={`Permission for ${t.name}`} className="tri">
           {CHOICES.map((c) => {
             const on = t.effective === c.d;
             return (
-              <button key={c.d} role="radio" aria-checked={on} title={c.help}
+              <button key={c.d} role="radio" aria-checked={on} aria-label={c.label} title={`${c.label}: ${c.help}`}
                 className={`tri-opt tri-${c.d} ${on ? (custom ? "on custom" : "on") : ""}`}
                 onClick={() => onSet(c.d)}>
                 <Icon name={c.icon} size={14} stroke={2} />
-                {c.label}
               </button>
             );
           })}
         </div>
-        {custom ? (
-          <button className="link tool-reset" onClick={() => onSet(Decision.$zero)}
-            title={`Follow ${modeName} again (${DECISION_LABEL[fallback].toLowerCase()})`}>
-            Custom · reset
-          </button>
-        ) : (
-          <span className="tool-source">From {modeName}</span>
-        )}
       </div>
     </li>
   );

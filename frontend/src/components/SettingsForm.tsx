@@ -125,15 +125,26 @@ function Field({ spec: s, value, secret, secretSet, extName, onChange, onSecret 
           {help}
         </div>
       );
-    case "number":
+    case "number": {
+      // "Max response size (KB)": the unit belongs next to the number.
+      const unit = s.label.match(/\s*\(([^)]{1,8})\)$/);
+      const numHead = unit ? (
+        <div className="setting-head">
+          <label htmlFor={id}>{s.label.slice(0, unit.index)}{s.required && <span className="tone-text-error"> *</span>}</label>
+        </div>
+      ) : head;
       return (
         <div className="setting">
-          {head}
-          <input id={id} type="number" value={value === undefined || value === null ? "" : String(value)}
-            onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))} />
+          {numHead}
+          <div className="input-unit">
+            <input id={id} type="number" inputMode="numeric" value={value === undefined || value === null ? "" : String(value)}
+              onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))} />
+            {unit && <span aria-hidden="true">{unit[1]}</span>}
+          </div>
           {help}
         </div>
       );
+    }
     case "secret":
       return (
         <div className="setting">
@@ -175,7 +186,18 @@ function Field({ spec: s, value, secret, secretSet, extName, onChange, onSecret 
         </div>
       );
     }
-    default:
+    default: {
+      const list = listSetting(s.description);
+      if (list) {
+        return (
+          <div className="setting">
+            {head}
+            <ListInput id={id} value={(value as string) ?? ""} example={list.example} empty={list.empty}
+              onChange={onChange} />
+            {list.rest && <small className="setting-help">{list.rest}</small>}
+          </div>
+        );
+      }
       return (
         <div className="setting">
           {head}
@@ -183,7 +205,64 @@ function Field({ spec: s, value, secret, secretSet, extName, onChange, onSecret 
           {help}
         </div>
       );
+    }
   }
+}
+
+/** A string setting described as "Comma-separated …" is a list: edit it as
+ *  tags and store it as the comma-separated string the extension expects.
+ *  The description's first sentence (the format) is dropped, its "(e.g. …)"
+ *  becomes the placeholder, and a sentence starting "Empty …" names the
+ *  empty state. */
+function listSetting(desc?: string): { example: string; empty: string; rest: string } | null {
+  if (!desc || !/^comma[- ]separated/i.test(desc)) return null;
+  // The first sentence ends at a full stop followed by a capital, so the
+  // "." in "e.g." doesn't count.
+  const end = desc.search(/\.\s+(?=[A-Z])/);
+  const first = end < 0 ? desc : desc.slice(0, end + 1);
+  const rest = end < 0 ? "" : desc.slice(end + 1).trim();
+  const example = first.match(/\(e\.g\.?\s*([^,)]+)/i)?.[1]?.trim() ?? "";
+  const empty = rest.match(/Empty (?:allows|means) ([^.]+)\./i)?.[1] ?? "";
+  return {
+    example,
+    empty: empty ? empty[0].toUpperCase() + empty.slice(1) : "",
+    // The empty state is shown in the field itself.
+    rest: empty ? rest.replace(/Empty (?:allows|means) [^.]+\.\s*/i, "").trim() : rest,
+  };
+}
+
+function ListInput({ id, value, example, empty, onChange }: {
+  id: string; value: string; example: string; empty: string; onChange: (v: string) => void;
+}) {
+  const [text, setText] = useState("");
+  const items = value.split(",").map((x) => x.trim()).filter(Boolean);
+  const commit = (raw: string) => {
+    const add = raw.split(/[,\s]+/).map((x) => x.trim()).filter((x) => x && !items.includes(x));
+    if (add.length) onChange([...items, ...add].join(", "));
+    setText("");
+  };
+  return (
+    <div className="list-input" onClick={(e) => (e.currentTarget.querySelector("input") as HTMLInputElement | null)?.focus()}>
+      {items.length === 0 && empty && <span id={`${id}-empty`} className="list-empty">{empty} for now</span>}
+      {items.map((item) => (
+        <span key={item} className="list-tag">
+          {item}
+          <button type="button" aria-label={`Remove ${item}`} onClick={() => onChange(items.filter((x) => x !== item).join(", "))}>
+            <Icon name="x" size={12} stroke={2} />
+          </button>
+        </span>
+      ))}
+      <input id={id} value={text}
+        placeholder={items.length ? "Add another" : example ? `e.g. ${example}` : "Add one"}
+        aria-describedby={items.length === 0 && empty ? `${id}-empty` : undefined}
+        onChange={(e) => (/[,\s]$/.test(e.target.value) ? commit(e.target.value) : setText(e.target.value))}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); commit(text); }
+          else if (e.key === "Backspace" && !text && items.length) onChange(items.slice(0, -1).join(", "));
+        }}
+        onBlur={() => text.trim() && commit(text)} />
+    </div>
+  );
 }
 
 function FolderRow({ path, title, onPick, onClear }: { path: string; title: string; onPick: (p: string) => void; onClear: () => void }) {

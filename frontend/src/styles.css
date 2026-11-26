@@ -333,12 +333,26 @@ kbd { font: 500 10px var(--mono); padding: 2px 5px; border-radius: 4px; backgrou
 .seg.on.seg-trusted { background: var(--accent); color: var(--accent-ink); }
 .seg.on.seg-ask { background: var(--ask); color: var(--accent-ink); }
 .seg.on.seg-readonly { background: var(--readonly); color: var(--accent-ink); }
-.tool-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.tool { padding: 10px 12px; border-radius: 10px; background: var(--surface); display: flex; flex-direction: column; gap: 6px; }
-.tool-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* Tools read as a rule (the group head) with exceptions (filled rows). */
+.tool-group { display: flex; flex-direction: column; }
+.tool-group + .tool-group { margin-top: 10px; }
+.tool-group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-bottom: 6px; font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.tool-rule { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; }
+.tool-rule.rule-allow { color: var(--accent); }
+.tool-rule.rule-ask { color: var(--ask); }
+.tool-rule.rule-deny { color: var(--error); }
+.tool-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.tool { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.tool-text {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+  background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
 .tool-name { font-size: 12.5px; color: var(--text); overflow-wrap: anywhere; }
-.tool-desc { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
-.tool-perm { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.tool-desc { font-size: 12px; line-height: 1.45; color: var(--muted); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; }
+.tool-text.open .tool-desc { -webkit-line-clamp: unset; }
+.tool-text:hover .tool-desc { color: var(--text-2); }
+.tool-perm { display: flex; align-items: center; gap: 6px; flex: none; }
+.tool-reset { color: var(--muted); }
 .tri { display: inline-grid; grid-template-columns: repeat(3, auto); gap: 2px; padding: 2px; border-radius: 9px; background: var(--bg); border: 1px solid #23262f; }
 .tri-opt {
   height: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid transparent; background: transparent;
@@ -352,8 +366,6 @@ kbd { font: 500 10px var(--mono); padding: 2px 5px; border-radius: 4px; backgrou
 .tri-opt.on.custom.tri-allow { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .tri-opt.on.custom.tri-ask { background: var(--ask); color: var(--accent-ink); border-color: var(--ask); }
 .tri-opt.on.custom.tri-deny { background: var(--error); color: var(--accent-ink); border-color: var(--error); }
-.tool-source { font: 500 10px var(--mono); letter-spacing: 0.04em; color: var(--muted); }
-.tool-reset { font-size: 12px; }
 .notice {
   display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px;
   background: #241d0f; border: 1px solid #5c4a22; font-size: 12px; line-height: 1.45; color: var(--text-2);
@@ -458,7 +470,27 @@ kbd { font: 500 10px var(--mono); padding: 2px 5px; border-radius: 4px; backgrou
 .folder-type { display: flex; gap: 6px; }
 .folder-type input { flex: 1; min-width: 0; }
 .folder-type .btn { height: 36px; }
-.settings-save { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+/* Unsaved changes stay in reach while scrolling the inspector. */
+.settings-save {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  position: sticky; bottom: -24px; z-index: 1; margin: 0 -24px; padding: 12px 24px;
+  background: var(--panel); border-top: 1px solid var(--line);
+}
+.input-unit { position: relative; display: flex; }
+.input-unit input { flex: 1; min-width: 0; padding-right: 44px; -moz-appearance: textfield; }
+.input-unit input::-webkit-inner-spin-button, .input-unit input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.input-unit span { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 12px; color: var(--muted); pointer-events: none; }
+.list-input {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 36px; padding: 5px 8px;
+  border-radius: 8px; border: 1px solid var(--line-2); background: var(--bg); cursor: text;
+}
+.list-input:focus-within { border-color: var(--accent); }
+.list-input input { flex: 1; min-width: 120px; min-height: 24px; border: 0; padding: 0 2px; background: transparent; }
+.list-input input:focus { outline: none; }
+.list-empty { font-size: 12.5px; color: var(--text-2); padding: 2px 8px; border-radius: 99px; background: var(--surface-2); }
+.list-tag { display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px 2px 9px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--line-2); font-size: 12.5px; color: var(--text); }
+.list-tag button { width: 18px; height: 18px; border: 0; border-radius: 50%; background: none; color: var(--muted); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.list-tag button:hover { color: var(--text); background: var(--line-2); }
 .settings-save .hint { display: inline-flex; align-items: center; gap: 4px; }
 .switch { position: relative; width: 40px; height: 24px; flex: none; }
 .switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
@@ -571,3 +603,8 @@ kbd { font: 500 10px var(--mono); padding: 2px 5px; border-radius: 4px; backgrou
   min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; margin-left: 2px;
   background: var(--accent-ink); color: var(--accent); font: 600 11px/18px var(--mono); text-align: center;
 }
+
+/* Compact per-tool control: an inherited choice is only a coloured icon;
+   an exception you made is filled. */
+.tool .tri-opt { width: 30px; padding: 0; justify-content: center; }
+.tool .tri-opt.on:not(.custom) { background: transparent; border-color: transparent; }
