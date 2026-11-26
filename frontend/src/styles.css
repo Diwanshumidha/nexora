@@ -452,7 +452,7 @@ kbd { font: 500 10px var(--mono); padding: 2px 5px; border-radius: 4px; backgrou
 }
 
 /* ---------- extension settings ---------- */
-.settings-form { display: flex; flex-direction: column; gap: 14px; padding: 12px; border-radius: 12px; background: var(--surface); }
+.settings-form { display: flex; flex-direction: column; gap: 18px; }
 .setting { display: flex; flex-direction: column; gap: 6px; }
 .setting-inline { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
 .setting-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
