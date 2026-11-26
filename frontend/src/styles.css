@@ -151,7 +151,14 @@ input, select, textarea {
 }
 .orbit.compact .planet { width: 44px; height: 44px; }
 .orbit.compact .node { margin-top: -22px; }
-.orbit.compact .node-name { font-size: 11px; }
+.orbit.compact .node-name { font-size: 11px; max-width: 84px; }
+.orbit.dense .node-name { max-width: 72px; }
+/* Dense: icons only; an extension's name shows while it's hovered or focused. */
+.orbit.dense .node-ext .node-name {
+  position: absolute; top: 48px; padding: 2px 8px; border-radius: 6px; background: var(--surface-2);
+  border: 1px solid var(--line-2); max-width: none; opacity: 0; pointer-events: none; z-index: 2;
+}
+.orbit.dense .node-ext:hover .node-name, .orbit.dense .node-ext:focus-visible .node-name, .orbit.dense .node-ext.selected .node-name { opacity: 1; }
 .node-meta { font-size: 11px; color: var(--muted); line-height: 1; font-family: var(--mono); }
 .node.tone-ext .planet { border-color: var(--accent); }
 .node.tone-net .planet { border-color: var(--net); }
@@ -173,7 +180,6 @@ input, select, textarea {
 .node-add:hover, .node-add.selected { border-color: var(--accent); color: var(--accent); }
 
 /* history ring */
-.history-ring { position: absolute; border-radius: 50%; }
 .history-slot { position: absolute; width: 0; height: 0; }
 .node-history {
   position: absolute; left: -24px; top: -18px; width: 48px; margin: 0; padding: 0; background: transparent; border: 0;
@@ -317,7 +323,8 @@ kbd { font: 500 10px var(--mono); padding: 2px 5px; border-radius: 4px; backgrou
 /* ---------- narrow windows ---------- */
 @media (max-width: 980px) {
   .orbit-page { flex-direction: column; height: auto; }
-  .orbit-box { min-height: 520px; }
+  /* Stacked: the orbit sizes itself to the box, so the box needs a height. */
+  .orbit-box { flex: none; height: clamp(520px, 78vh, 820px); }
   .inspector { width: auto; max-width: none; border-left: 0; border-top: 1px solid var(--line); }
 }
 
