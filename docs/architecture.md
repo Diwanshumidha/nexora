@@ -94,6 +94,16 @@ go through the same permission gate, history and approvals as any other.
   the user's privileges, gets only a minimal environment (`PATH`, `HOME`,
   `USER`, `LANG`, `TMPDIR`, plus the Windows essentials) and its manifest
   `env`, and on Linux is killed if Nexora dies. The UI says so.
+- **OAuth.** A remote server without an `Authorization` header gets an
+  OAuth handler (`internal/extension/mcpoauth.go`) wrapping the SDK's
+  `AuthorizationCodeHandler`: protected-resource and authorization-server
+  discovery, dynamic client registration, PKCE, a loopback redirect
+  (`http://127.0.0.1:<random port>/callback`) and refresh. Only
+  `Manager.SignIn` (the panel's **Sign in** button) may open the browser;
+  on start-up, or for a 401 mid-session, the request fails with
+  `ErrSignInRequired` and `Info.Auth` becomes `required`. Client and token
+  live in `extension-settings/oauth/<id>.json` (0600), bound to the server
+  URL, and are deleted on sign-out or removal.
 - **Adding one.** The **+** panel's *Add an MCP server* form
   (`extension.NewMCPManifest`) writes a manifest-only extension. Its env
   vars and headers become settings, so tokens live in the 0600 settings
@@ -197,7 +207,8 @@ ChatGPT ──https──▶ tailscaled (Funnel) ─┐
 
 ## Roadmap
 
-- OAuth for remote MCP servers that require it (today: static headers).
+- OAuth for servers without dynamic client registration (a pre-registered
+  client ID in the manifest).
 - Optional OS-level sandboxing for local MCP servers (bubblewrap, sandbox-exec).
 - Per-run permission prompts and an audit log of tool calls.
 - Install extensions from a registry or an archive (`.nxext`), with signature checks.

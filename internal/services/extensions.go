@@ -29,6 +29,7 @@ func (s *ExtensionService) ServiceStartup(ctx context.Context, _ application.Ser
 	if err := s.mgr.Discover(); err != nil {
 		return err
 	}
+	s.mgr.SetURLOpener(func(url string) error { return application.Get().Browser.OpenURL(url) })
 	s.mgr.StartAll(ctx)
 	return nil
 }
@@ -85,6 +86,24 @@ func (s *ExtensionService) AddMCPServer(ctx context.Context, spec extension.MCPS
 	}
 	info, _ = s.mgr.Get(info.Manifest.ID)
 	return info, nil
+}
+
+// SignIn connects a remote MCP server that requires OAuth, sending the user
+// through its sign-in in the browser. It returns when they finish or cancel.
+func (s *ExtensionService) SignIn(ctx context.Context, id string) error {
+	err := s.mgr.SignIn(ctx, id)
+	if err != nil {
+		s.log.Warn("MCP sign-in failed", "id", id, "err", err)
+	}
+	return err
+}
+
+// CancelSignIn stops waiting for a sign-in started with SignIn.
+func (s *ExtensionService) CancelSignIn(id string) { s.mgr.CancelSignIn(id) }
+
+// SignOut forgets a remote MCP server's sign-in and disconnects it.
+func (s *ExtensionService) SignOut(ctx context.Context, id string) error {
+	return s.mgr.SignOut(ctx, id)
 }
 
 // Remove uninstalls an extension and forgets its permissions, so a later

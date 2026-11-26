@@ -6,6 +6,36 @@
 import * as protocol$0 from "../protocol/models.js";
 
 /**
+ * AuthState is where a remote MCP server stands with OAuth.
+ */
+export enum AuthState {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * no OAuth involved (yet)
+     */
+    AuthNone = "",
+
+    /**
+     * the server needs the user to sign in
+     */
+    AuthRequired = "required",
+
+    /**
+     * waiting for the user in the browser
+     */
+    AuthPending = "pending",
+
+    /**
+     * connected with a stored token
+     */
+    AuthSignedIn = "signed-in",
+};
+
+/**
  * Grant is the sandbox access a folder setting gives the extension.
  */
 export enum Grant {
@@ -34,6 +64,11 @@ export interface Info {
      * started, so a restart would load a different version.
      */
     "stale"?: boolean;
+
+    /**
+     * Auth is the OAuth state of a remote MCP server.
+     */
+    "auth"?: AuthState;
 }
 
 /**

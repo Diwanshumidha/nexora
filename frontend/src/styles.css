@@ -237,6 +237,7 @@ input, select, textarea {
   background: var(--surface); font-size: 12px; width: 100%;
 }
 .row .mono { font-size: 12px; }
+.row .btn { height: 26px; padding: 0 10px; font-size: 12px; flex: none; }
 .row-desc { color: var(--muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-button { border: 0; color: var(--text); cursor: pointer; text-align: left; }
 .row-button:hover { background: var(--surface-2); }

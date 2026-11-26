@@ -45,6 +45,8 @@ type Info struct {
 	// Stale is true when the extension's code changed on disk after it
 	// started, so a restart would load a different version.
 	Stale bool `json:"stale,omitempty"`
+	// Auth is the OAuth state of a remote MCP server.
+	Auth AuthState `json:"auth,omitempty"`
 }
 
 type entry struct {
@@ -58,6 +60,8 @@ type entry struct {
 	removed bool
 	// mainMod is the entry file's modification time when the process started.
 	mainMod time.Time
+	// cancelSignIn aborts a sign-in waiting for the browser.
+	cancelSignIn context.CancelFunc
 }
 
 // Manager discovers, installs, removes and runs extensions, and routes tool
@@ -66,7 +70,9 @@ type Manager struct {
 	cfg      *config.Config
 	log      *slog.Logger
 	settings *settingsStore
+	oauth    *oauthStore
 	policy   SettingsPolicy
+	openURL  func(string) error // opens the browser to sign in
 
 	mu   sync.RWMutex
 	exts map[string]*entry // keyed by extension id
@@ -82,6 +88,7 @@ func NewManager(cfg *config.Config, log *slog.Logger) *Manager {
 	return &Manager{
 		cfg: cfg, log: log, exts: map[string]*entry{}, byNS: map[string]*entry{},
 		settings: &settingsStore{dir: settingsDir},
+		oauth:    &oauthStore{dir: filepath.Join(settingsDir, "oauth")},
 		policy:   SettingsPolicy{Protected: protected},
 	}
 }
@@ -152,8 +159,16 @@ func (m *Manager) lookup(id string) (*entry, error) {
 	return e, nil
 }
 
+// SetURLOpener sets how the manager opens the browser for an OAuth sign-in.
+func (m *Manager) SetURLOpener(open func(string) error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.openURL = open
+}
+
 // Start launches an extension process and performs the handshake. It is a
-// no-op if the extension is already running.
+// no-op if the extension is already running. A remote MCP server that needs
+// a sign-in fails with ErrSignInRequired: only SignIn opens the browser.
 func (m *Manager) Start(ctx context.Context, id string) error {
 	e, err := m.lookup(id)
 	if err != nil {
@@ -161,7 +176,75 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	}
 	e.lifecycle.Lock()
 	defer e.lifecycle.Unlock()
+	return m.startLocked(ctx, e, false)
+}
 
+// SignIn (re)connects a remote MCP server, letting it send the user through
+// an OAuth sign-in in the browser. It returns once the user finished, or
+// CancelSignIn or signInTimeout ended the wait.
+func (m *Manager) SignIn(ctx context.Context, id string) error {
+	e, err := m.lookup(id)
+	if err != nil {
+		return err
+	}
+	if man := e.info.Manifest; man.Runtime != RuntimeMCP || man.URL == "" {
+		return fmt.Errorf("%s is not a remote MCP server", id)
+	}
+	e.lifecycle.Lock()
+	defer e.lifecycle.Unlock()
+	if err := m.stopLocked(ctx, e); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	m.mu.Lock()
+	e.cancelSignIn = cancel
+	e.info.Auth = AuthPending
+	e.info.Error = ""
+	m.mu.Unlock()
+	defer func() {
+		m.mu.Lock()
+		e.cancelSignIn = nil
+		m.mu.Unlock()
+	}()
+	return m.startLocked(ctx, e, true)
+}
+
+// CancelSignIn stops waiting for the browser in a pending SignIn.
+func (m *Manager) CancelSignIn(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e, ok := m.exts[id]; ok && e.cancelSignIn != nil {
+		e.cancelSignIn()
+	}
+}
+
+// SignOut forgets a remote MCP server's sign-in and disconnects it.
+func (m *Manager) SignOut(ctx context.Context, id string) error {
+	e, err := m.lookup(id)
+	if err != nil {
+		return err
+	}
+	e.lifecycle.Lock()
+	defer e.lifecycle.Unlock()
+	if err := m.stopLocked(ctx, e); err != nil {
+		return err
+	}
+	if err := m.oauth.remove(id); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	e.info.Auth = AuthRequired
+	e.info.Status = StatusStopped
+	e.info.Error = ""
+	m.mu.Unlock()
+	return nil
+}
+
+// startLocked starts e; the caller must hold e.lifecycle. interactive
+// allows an OAuth sign-in in the browser.
+func (m *Manager) startLocked(ctx context.Context, e *entry, interactive bool) error {
+	id := e.info.Manifest.ID
 	m.mu.RLock()
 	removed, running := e.removed, e.live != nil
 	man, dir := e.info.Manifest, e.info.Dir
@@ -191,16 +274,39 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	switch man.Runtime {
 	case RuntimeMCP:
 		var mc *mcpConn
+		m.mu.RLock()
+		openURL := m.openURL
+		m.mu.RUnlock()
 		mc, tools, err = connectMCP(ctx, man, mcpOptions{
 			Dir: dir, DataDir: dataDir, Specs: man.Settings, Values: values,
 			OnToolsChanged: func(tools []protocol.ToolSpec) { m.setTools(e, mc, tools) },
+			OAuth: &oauthOptions{
+				ID: id, Store: m.oauth, Interactive: interactive, OpenURL: openURL,
+				OnSignInRequired: func() { m.signInExpired(e, mc) },
+			},
 		}, m.log)
 		if err != nil {
-			err = fmt.Errorf("connect to MCP server %s: %w", id, err)
-			m.setError(e, err)
-			return err
+			signIn := errors.Is(err, ErrSignInRequired)
+			m.mu.Lock()
+			e.info.Status = StatusError
+			e.info.Error = fmt.Sprintf("connect to MCP server %s: %v", id, err)
+			e.info.Auth = AuthNone
+			if signIn {
+				e.info.Error = "Sign in to " + hostOf(man.URL) + " to use this server's tools."
+			}
+			if signIn || interactive {
+				e.info.Auth = AuthRequired
+			}
+			m.mu.Unlock()
+			return fmt.Errorf("connect to MCP server %s: %w", id, err)
 		}
 		live = mc
+		m.mu.Lock()
+		e.info.Auth = AuthNone
+		if mc.SignedIn() {
+			e.info.Auth = AuthSignedIn
+		}
+		m.mu.Unlock()
 	default:
 		grantRead, grantWrite := grantedFolders(man.Settings, values)
 		proc, err := spawn(man, spawnOptions{
@@ -233,6 +339,19 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 
 	go m.watch(e, live)
 	return nil
+}
+
+// signInExpired flags a connected server whose token was rejected, so the
+// UI offers to sign in again. (During a connect, live is still nil and the
+// connect error reports it instead.)
+func (m *Manager) signInExpired(e *entry, live *mcpConn) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if live == nil || e.live != conn(live) {
+		return
+	}
+	e.info.Auth = AuthRequired
+	e.info.Error = "The sign-in expired. Sign in again to keep using this server's tools."
 }
 
 // setTools replaces a running extension's tools after it announced a change.
@@ -571,6 +690,9 @@ func (m *Manager) Remove(ctx context.Context, id string) error {
 
 	if err := m.settings.remove(id); err != nil {
 		m.log.Warn("removing settings", "id", id, "err", err)
+	}
+	if err := m.oauth.remove(id); err != nil {
+		m.log.Warn("removing sign-in", "id", id, "err", err)
 	}
 	if filepath.Dir(e.info.Dir) == filepath.Clean(m.cfg.ExtensionsDir) {
 		return os.RemoveAll(e.info.Dir)

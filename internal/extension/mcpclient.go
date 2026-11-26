@@ -34,7 +34,8 @@ const mcpInitTimeout = 90 * time.Second
 // the user's privileges and only gets a minimal environment.
 type mcpConn struct {
 	session *mcp.ClientSession
-	cmd     *exec.Cmd // nil for remote servers
+	cmd     *exec.Cmd     // nil for remote servers
+	oauth   *oauthHandler // nil unless a remote server without static auth
 	log     *slog.Logger
 
 	// names maps JS tool names to the server's tool names, which need not be
@@ -54,6 +55,9 @@ type mcpOptions struct {
 	// OnToolsChanged receives the new tool list when the server announces
 	// that it changed.
 	OnToolsChanged func([]protocol.ToolSpec)
+	// OAuth enables OAuth sign-in for a remote server that has no
+	// Authorization header of its own.
+	OAuth *oauthOptions
 }
 
 // connectMCP starts or connects to the server described by m, performs the
@@ -67,16 +71,30 @@ func connectMCP(ctx context.Context, m *Manifest, opts mcpOptions, log *slog.Log
 	x := newExpander(opts)
 	c := &mcpConn{log: log.With("extension", m.ID), done: make(chan struct{})}
 
+	timeout := mcpInitTimeout
 	var transport mcp.Transport
 	if m.URL != "" {
 		headers := http.Header{}
 		for k, v := range m.Headers {
 			headers.Set(k, x.str(v))
 		}
-		transport = &mcp.StreamableClientTransport{
+		t := &mcp.StreamableClientTransport{
 			Endpoint:   x.str(m.URL),
 			HTTPClient: &http.Client{Transport: headerTransport{headers: headers, base: http.DefaultTransport}},
 		}
+		if opts.OAuth != nil && headers.Get("Authorization") == "" {
+			oh, err := newOAuthHandler(t.Endpoint, *opts.OAuth)
+			if err != nil {
+				return nil, nil, err
+			}
+			// Only the connect may sign in; later 401s report instead.
+			defer oh.interactive.Store(false)
+			if opts.OAuth.Interactive {
+				timeout += signInTimeout
+			}
+			c.oauth, t.OAuthHandler = oh, oh
+		}
+		transport = t
 	} else {
 		env := map[string]string{}
 		for k, v := range m.Env {
@@ -118,11 +136,11 @@ func connectMCP(ctx context.Context, m *Manifest, opts mcpOptions, log *slog.Log
 		},
 	})
 
-	ctx, cancel := context.WithTimeout(ctx, mcpInitTimeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
-		return nil, nil, mcpStartError(err, ctx)
+		return nil, nil, mcpStartError(err, ctx, timeout)
 	}
 	c.session = session
 	go func() {
@@ -138,17 +156,23 @@ func connectMCP(ctx context.Context, m *Manifest, opts mcpOptions, log *slog.Log
 		stopCtx, stop := context.WithTimeout(context.Background(), stopTimeout)
 		defer stop()
 		_ = c.Stop(stopCtx)
-		return nil, nil, fmt.Errorf("list tools: %w", mcpStartError(err, ctx))
+		return nil, nil, fmt.Errorf("list tools: %w", mcpStartError(err, ctx, timeout))
 	}
 	return c, tools, nil
 }
 
-func mcpStartError(err error, ctx context.Context) error {
-	if ctx.Err() != nil {
-		return fmt.Errorf("MCP server did not respond within %s: %w", mcpInitTimeout, err)
+func mcpStartError(err error, ctx context.Context, timeout time.Duration) error {
+	if errors.Is(err, ErrSignInRequired) {
+		return ErrSignInRequired
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("MCP server did not respond within %s: %w", timeout, err)
 	}
 	return err
 }
+
+// SignedIn reports whether the connection holds an OAuth token.
+func (c *mcpConn) SignedIn() bool { return c.oauth != nil && c.oauth.signedIn() }
 
 func (c *mcpConn) describeExit(waitErr, closeErr error) error {
 	if c.cmd != nil && c.cmd.ProcessState != nil && !c.cmd.ProcessState.Success() {

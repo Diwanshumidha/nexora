@@ -28,6 +28,13 @@ export function AddMCPServer(spec: extension$0.MCPServerSpec): $CancellablePromi
 }
 
 /**
+ * CancelSignIn stops waiting for a sign-in started with SignIn.
+ */
+export function CancelSignIn(id: string): $CancellablePromise<void> {
+    return $Call.ByID(777007541, id);
+}
+
+/**
  * Install adds an extension from a local folder containing nexora.json.
  */
 export function Install(dir: string): $CancellablePromise<extension$0.Info | null> {
@@ -72,4 +79,19 @@ export function SetSettings(id: string, values: { [_ in string]?: any } | null):
 
 export function Settings(id: string): $CancellablePromise<$models.SettingsView> {
     return $Call.ByID(230118396, id);
+}
+
+/**
+ * SignIn connects a remote MCP server that requires OAuth, sending the user
+ * through its sign-in in the browser. It returns when they finish or cancel.
+ */
+export function SignIn(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3927162111, id);
+}
+
+/**
+ * SignOut forgets a remote MCP server's sign-in and disconnects it.
+ */
+export function SignOut(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2373599876, id);
 }

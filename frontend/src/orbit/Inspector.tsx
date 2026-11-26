@@ -25,7 +25,7 @@ import { Icon, Logo, iconFor, type IconName } from "./icons";
 import { RunDetail } from "../components/RunDetail";
 import { SettingsForm } from "../components/SettingsForm";
 import type { SettingsView } from "../../bindings/nexora/internal/services/models";
-import type { MCPServerSpec } from "../../bindings/nexora/internal/extension/models";
+import { AuthState, type MCPServerSpec } from "../../bindings/nexora/internal/extension/models";
 import type { Selection } from "./OrbitMap";
 
 interface Props {
@@ -391,7 +391,19 @@ function ExtensionPanel({ e, history, refresh, onSelect }: Props & { e: Extensio
       <Head icon={iconFor(m.icon)} title={m.name} sub={`tools.${ns} · v${m.version}`}
         tone={e.status === "running" ? "ext" : e.status === "error" ? "error" : "dim"} />
       <p className="insp-desc">{m.description}</p>
-      {e.error && <p className="error">{e.error}</p>}
+      {e.error && e.auth !== AuthState.AuthRequired && <p className="error">{e.error}</p>}
+      {e.auth === AuthState.AuthRequired && (
+        <div className="notice">
+          <span>{e.error || `${m.name} needs you to sign in before its tools can be used.`}</span>
+          <button className="btn primary" disabled={busy} onClick={() => run(() => Extensions.SignIn(m.id))}>Sign in</button>
+        </div>
+      )}
+      {e.auth === AuthState.AuthPending && (
+        <div className="notice">
+          <span>Finish signing in in your browser. Nexora connects as soon as you approve access.</span>
+          <button className="btn ghost" onClick={() => Extensions.CancelSignIn(m.id).finally(refresh)}>Cancel</button>
+        </div>
+      )}
       {e.stale && (
         <div className="notice">
           <span>A newer build of this extension is on disk. Restart it to load the changes.</span>
@@ -410,7 +422,9 @@ function ExtensionPanel({ e, history, refresh, onSelect }: Props & { e: Extensio
 
       <TrustSection extId={m.id} runsCount={runs.length} refresh={refresh} />
 
-      {m.runtime === "mcp" ? <MCPConnection m={m} /> : <Section title="SANDBOX ACCESS">
+      {m.runtime === "mcp" ? (
+        <MCPConnection m={m} auth={e.auth} busy={busy} onSignOut={() => run(() => Extensions.SignOut(m.id))} />
+      ) : <Section title="SANDBOX ACCESS">
         {granted.map(([kind, dir]) => (
           <div key={kind + dir} className="row">
             <Badge tone={kind === "edit" ? "pending" : "net"}>{kind === "edit" ? "READ+EDIT" : "READ"}</Badge>
@@ -690,7 +704,13 @@ export function StateDot({ state }: { state: string }) {
 }
 
 /** How an MCP-server extension is reached, and what it can touch. */
-function MCPConnection({ m }: { m: NonNullable<ExtensionInfo["manifest"]> }) {
+function MCPConnection({ m, auth, busy, onSignOut }: {
+  m: NonNullable<ExtensionInfo["manifest"]>;
+  auth?: AuthState;
+  busy: boolean;
+  onSignOut: () => void;
+}) {
+  const staticAuth = Object.keys(m.headers ?? {}).some((h) => h.toLowerCase() === "authorization");
   const command = [m.command, ...(m.args ?? [])].map((a) => (/\s/.test(a ?? "") ? JSON.stringify(a) : a)).join(" ");
   return (
     <Section title="MCP SERVER">
@@ -699,7 +719,18 @@ function MCPConnection({ m }: { m: NonNullable<ExtensionInfo["manifest"]> }) {
           <Badge tone={m.url ? "net" : "pending"}>{m.url ? "REMOTE" : "LOCAL"}</Badge>
           <span className="mono row-desc" title={m.url || command}>{m.url || command}</span>
         </li>
+        {auth === AuthState.AuthSignedIn && (
+          <li className="row">
+            <Badge tone="live">SIGNED IN</Badge>
+            <span className="row-desc">OAuth, refreshed automatically</span>
+            <button className="btn ghost" disabled={busy} onClick={onSignOut}>Sign out</button>
+          </li>
+        )}
       </ul>
+      {m.url && !staticAuth && auth !== AuthState.AuthSignedIn && (
+        <p className="hint">If the server requires an account, you sign in through your browser. Nexora keeps the token
+          private and never opens the browser on its own.</p>
+      )}
       {m.url ? (
         <p className="hint">Tool calls and their arguments are sent to this server.</p>
       ) : (

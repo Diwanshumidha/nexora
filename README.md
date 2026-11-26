@@ -157,6 +157,13 @@ extension's settings, with tokens stored as secrets. Its tools then appear
 under `tools.<name>` with the same trust modes and approvals as any other
 extension.
 
+Remote servers that use OAuth (most hosted ones) need no token at all: leave
+the headers empty and press **Sign in** on the server's panel. Nexora
+registers itself with the server, sends you through its sign-in in your
+browser, and keeps the token (refreshed automatically) in its private
+settings store. It never opens the browser on its own; if a sign-in expires,
+the panel asks you to sign in again.
+
 Local MCP servers are ordinary programs, so unlike Node extensions they are
 **not sandboxed**: they run with your user's access. They only get a minimal
 environment, never your shell's secrets. Only add servers you trust. See
