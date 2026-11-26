@@ -453,6 +453,8 @@ kbd { font: 500 10px var(--mono); padding: 2px 5px; border-radius: 4px; backgrou
 
 /* ---------- extension settings ---------- */
 .settings-form { display: flex; flex-direction: column; gap: 18px; }
+/* Closes the settings off from the trust and tool sections below. */
+.settings-section { padding-bottom: 20px; border-bottom: 1px solid var(--line-2); }
 .setting { display: flex; flex-direction: column; gap: 6px; }
 .setting-inline { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
 .setting-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -474,8 +476,9 @@ kbd { font: 500 10px var(--mono); padding: 2px 5px; border-radius: 4px; backgrou
 .settings-save {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
   position: sticky; bottom: -24px; z-index: 1; margin: 0 -24px; padding: 12px 24px;
-  background: var(--panel); border-top: 1px solid var(--line);
+  background: var(--panel);
 }
+.settings-section:has(.settings-save) { padding-bottom: 8px; }
 .input-unit { position: relative; display: flex; }
 .input-unit input { flex: 1; min-width: 0; padding-right: 44px; -moz-appearance: textfield; }
 .input-unit input::-webkit-inner-spin-button, .input-unit input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }

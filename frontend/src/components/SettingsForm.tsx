@@ -59,7 +59,7 @@ export function SettingsForm({ extId, extName, onSaved }: { extId: string; extNa
   };
 
   return (
-    <section className="insp-section">
+    <section className="insp-section settings-section">
       <div className="insp-label"><span>SETTINGS</span></div>
       <div className="settings-form">
         {specs.map((s) => (
