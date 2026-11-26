@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Extensions, Permissions } from "./lib/api";
 import { useLive } from "./lib/useLive";
 import OrbitPage from "./pages/Orbit";
@@ -19,6 +19,8 @@ export default function App() {
   const [page, setPage] = useState<Page>("orbit");
   const [selected, setSelected] = useState<Selection>({ kind: "core" });
   const [runId, setRunId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<string | null>(null);
+  const takeDraft = useCallback(() => setDraft(null), []);
   // Approvals are polled app-wide: a script may pause for one while you're
   // on any page.
   const [approvals, refreshApprovals] = useLive(async () => (await Permissions.Approvals()) ?? [], 1000, []);
@@ -45,6 +47,10 @@ export default function App() {
     if (!ext?.manifest) return;
     setSelected({ kind: "extension", id: ext.manifest.id });
     setPage("orbit");
+  };
+  const editScript = (code: string) => {
+    setDraft(code);
+    setPage("code");
   };
 
   return (
@@ -76,9 +82,12 @@ export default function App() {
         )}
         {page === "history" && (
           <HistoryPage selectedId={runId} onSelect={setRunId} approvals={approvals} onReview={review}
-            onOpenExtension={openExtension} />
+            onOpenExtension={openExtension} onEdit={editScript} />
         )}
-        {page === "code" && <PlaygroundPage />}
+        {page === "code" && (
+          <PlaygroundPage draft={draft} onDraftTaken={takeDraft} approvals={approvals} onReview={review}
+            onOpenExtension={openExtension} onOpenRun={openRun} />
+        )}
       </div>
     </div>
   );

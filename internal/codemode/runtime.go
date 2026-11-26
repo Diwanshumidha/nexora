@@ -172,7 +172,8 @@ func (r *Runtime) Run(ctx context.Context, code string, namespaces []Namespace) 
 	}
 
 	if p.State() == goja.PromiseStateRejected {
-		return x.res, fmt.Errorf("script error: %v", p.Result())
+		// Tool failures are Go errors; their "GoError: " prefix is noise.
+		return x.res, fmt.Errorf("script error: %s", strings.TrimPrefix(p.Result().String(), "GoError: "))
 	}
 	v, err := x.toJSON(p.Result())
 	if err != nil {
@@ -234,6 +235,7 @@ func (x *run) installConsole() error {
 
 func (x *run) installTools(namespaces []Namespace) error {
 	tools := x.vm.NewObject()
+	names := make([]string, 0, len(namespaces))
 	for _, ns := range namespaces {
 		obj := x.vm.NewObject()
 		for _, tool := range ns.Tools {
@@ -241,11 +243,34 @@ func (x *run) installTools(namespaces []Namespace) error {
 				return err
 			}
 		}
-		if err := tools.Set(ns.Name, obj); err != nil {
+		strict := x.strict(obj, "tools."+ns.Name, "Its tools: ", ns.Tools)
+		if err := tools.Set(ns.Name, strict); err != nil {
 			return err
 		}
+		names = append(names, ns.Name)
 	}
-	return x.vm.Set("tools", tools)
+	return x.vm.Set("tools", x.strict(tools, "tools", "Available: ", names))
+}
+
+// strict wraps obj so reading a member it doesn't have throws a TypeError
+// naming what does exist, instead of yielding undefined and failing later
+// with "Cannot read property 'x' of undefined".
+func (x *run) strict(obj *goja.Object, path, listLabel string, members []string) goja.Proxy {
+	return x.vm.NewProxy(obj, &goja.ProxyTrapConfig{
+		Get: func(target *goja.Object, property string, _ goja.Value) goja.Value {
+			if v := target.Get(property); v != nil {
+				return v
+			}
+			if property == "then" { // probed by await and Promise.resolve
+				return goja.Undefined()
+			}
+			list := "none"
+			if len(members) > 0 {
+				list = strings.Join(members, ", ")
+			}
+			panic(x.vm.NewTypeError("%s.%s does not exist. %s%s", path, property, listLabel, list))
+		},
+	})
 }
 
 // toolFunc returns the JS function for tools.<ns>.<tool>. It runs on the VM

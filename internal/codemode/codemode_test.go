@@ -265,3 +265,23 @@ func TestRunRecordsCalls(t *testing.T) {
 		t.Fatalf("failed call: %+v", failed)
 	}
 }
+
+func TestRunUnknownToolsExplain(t *testing.T) {
+	for code, want := range map[string]string{
+		`return await tools.nope.echo({})`: "tools.nope does not exist. Available: x",
+		`return await tools.x.ehco({})`:    "tools.x.ehco does not exist. Its tools: echo, fail",
+	} {
+		_, err, _ := runScript(t, code, Options{})
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: err = %v, want %q", code, err, want)
+		}
+	}
+	// Feature checks and awaiting the objects themselves still work.
+	res, err, _ := runScript(t, `await tools; await tools.x; return ["x" in tools, typeof tools.x.echo, Object.keys(tools)]`, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := json.Marshal(res.Value); string(got) != `[true,"function",["x"]]` {
+		t.Fatalf("got %s", got)
+	}
+}

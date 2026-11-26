@@ -28,6 +28,8 @@ interface Props {
 /** Minimum distance between neighbouring extension nodes along a ring, in
  *  px: a node plus its label. */
 const NODE_SPACING = 112;
+/** Smallest network ring that keeps its nodes' labels off the core. */
+const NET_MIN_RADIUS = 108;
 /** The arc kept free at the bottom of each ring for its label. */
 const GAP_DEG = 50;
 /** Runs shown on the outer ring (newest first; running ones always lead).
@@ -50,11 +52,12 @@ const arc = (r: number) => (2 * Math.PI * r * (360 - GAP_DEG)) / 360;
  * NODE_SPACING; only past its maximum size is a second ring added, staggered
  * half a step so nodes never sit in line with each other.
  */
-function planExtRings(n: number, C: number): { r: number; count: number; offset: number }[] {
-  const min = C * 0.58, max = C * 0.76;
+function planExtRings(n: number, C: number, rNet: number): { r: number; count: number; offset: number }[] {
+  // Keep a node's width plus its label clear of the network ring.
+  const max = C * 0.76, min = Math.min(max, Math.max(C * 0.58, rNet + 64));
   const needed = (n * NODE_SPACING) / ((2 * Math.PI * (360 - GAP_DEG)) / 360);
   if (needed <= max) return [{ r: Math.max(min, needed), count: n, offset: 0 }];
-  const inner = C * 0.5, outer = C * 0.71;
+  const inner = Math.max(C * 0.5, rNet + 64), outer = Math.max(C * 0.71, inner + 60);
   const innerCount = Math.min(n - 1, Math.round((n * arc(inner)) / (arc(inner) + arc(outer))));
   const outerCount = n - innerCount;
   const outerStep = (360 - GAP_DEG) / outerCount;
@@ -81,9 +84,11 @@ export const OrbitMap = memo(function OrbitMap({ network, extensions, history, m
 
   const layout = useMemo(() => {
     const slots = [...extensions.map((e) => e.manifest!.id), "+add"];
-    const rings = planExtRings(slots.length, C);
+    // Network nodes sit beside the core with their labels below; on small
+    // orbits a proportional ring would put those labels on the core.
+    const rNet = Math.max(C * 0.3, NET_MIN_RADIUS);
+    const rings = planExtRings(slots.length, C, rNet);
     const extRadii = rings.map((r) => r.r);
-    const rNet = C * 0.3;
     // Room below the history ring for its runs' captions and the ring label.
     const rHist = Math.min(C - 58, extRadii[extRadii.length - 1] + C * 0.17);
     // Two rings are dense: smaller planets, no status captions.

@@ -16,9 +16,11 @@ interface Props {
   approvals: Approval[];
   onReview: (approvalId: string) => void;
   onOpenExtension: (namespace: string) => void;
+  /** Opens a run's script in Code mode for editing. */
+  onEdit: (code: string) => void;
 }
 
-export default function HistoryPage({ selectedId, onSelect, approvals, onReview, onOpenExtension }: Props) {
+export default function HistoryPage({ selectedId, onSelect, approvals, onReview, onOpenExtension, onEdit }: Props) {
   // Summaries only: full runs (script, arguments, logs) are fetched one at a
   // time for the run being shown.
   const [records, refresh] = useLive(async () => (await History.Summaries(500)) ?? [], 3000, [] as RunSummary[]);
@@ -142,6 +144,9 @@ export default function HistoryPage({ selectedId, onSelect, approvals, onReview,
                     <Icon name="refresh" size={16} /> Run again
                   </button>
                 )}
+                <button className="btn ghost" onClick={() => onEdit(selected.code)}>
+                  <Icon name="code" size={16} /> Edit in Code mode
+                </button>
                 {actionError && <p className="error">{actionError}</p>}
               </>
             }
