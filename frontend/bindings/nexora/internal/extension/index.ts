@@ -10,6 +10,7 @@ export {
 
 export type {
     Info,
+    MCPServerSpec,
     Manifest,
     Permissions,
     SettingSpec

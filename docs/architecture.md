@@ -9,11 +9,12 @@
 │                              codemode.Runtime ─────┘                        │   │
 │                              (goja sandbox, only `tools`)                   │   │
 └─────────────────────────────────────────────────────────────────────────────┼───┘
-                                    JSON-RPC over stdio                       │
+                       Nexora JSON-RPC over stdio                 MCP         │
              ┌───────────────────────────┬────────────────────────────────────┤
              ▼                           ▼                                    ▼
-      node --permission            node --permission                  (planned) MCP
-      extensions/excel             extensions/word                    server adapter
+      node --permission            node --permission              MCP server: local
+      extensions/excel             extensions/word                (stdio) or remote
+                                                                  (streamable HTTP)
 ```
 
 ## Extensions
@@ -58,6 +59,45 @@ The manifest's `protocol` field versions this contract (`extension.HostProtocol`
 
 Tools are declared at runtime during `initialize`, so the manifest only holds
 static metadata and permissions.
+
+### MCP-server extensions
+
+An extension with `"runtime": "mcp"` wraps an existing MCP server instead of
+running Nexora SDK code (`internal/extension/mcpclient.go`, built on the
+official Go SDK's client). Its tools appear under `tools.<namespace>.*` and
+go through the same permission gate, history and approvals as any other.
+
+```json
+{
+  "id": "github", "name": "GitHub", "version": "1.0.0", "runtime": "mcp",
+  "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"],
+  "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${token}" },
+  "settings": [{ "key": "token", "type": "secret", "label": "Access token", "required": true }]
+}
+```
+
+- **Transports.** `command`/`args`/`env` launch a local server over stdio;
+  `url`/`headers` connect to a remote one over streamable HTTP.
+- **Templating.** Values may reference settings as `${key}`, plus `${HOME}`,
+  `${DATA}` (private data dir) and `${DIR}` (extension dir). An argument
+  that is exactly `${folders}` expands to one argument per folder. Unknown
+  references are rejected when the manifest loads. Changing a setting
+  restarts the server.
+- **Tool mapping.** Names that aren't JS identifiers are rewritten
+  (`get-issue` → `get_issue`). `readOnlyHint` maps to `ReadOnly`, so in *Ask
+  first* mode read tools run without a prompt. Results: `structuredContent`
+  as is, text content as a string, anything else (images, resources) as the
+  list of MCP content blocks; `isError` results throw.
+  `notifications/tools/list_changed` refreshes the tool list live.
+- **Isolation.** A local MCP server is **not** sandboxed (it is an arbitrary
+  program, not Node code we can launch with `--permission`): it runs with
+  the user's privileges, gets only a minimal environment (`PATH`, `HOME`,
+  `USER`, `LANG`, `TMPDIR`, plus the Windows essentials) and its manifest
+  `env`, and on Linux is killed if Nexora dies. The UI says so.
+- **Adding one.** The **+** panel's *Add an MCP server* form
+  (`extension.NewMCPManifest`) writes a manifest-only extension. Its env
+  vars and headers become settings, so tokens live in the 0600 settings
+  store (masked as secrets), not in `nexora.json`.
 
 ## Code Mode
 
@@ -157,7 +197,8 @@ ChatGPT ──https──▶ tailscaled (Funnel) ─┐
 
 ## Roadmap
 
-- MCP client: `runtime: "mcp"` extensions wrapping external MCP servers.
+- OAuth for remote MCP servers that require it (today: static headers).
+- Optional OS-level sandboxing for local MCP servers (bubblewrap, sandbox-exec).
 - Per-run permission prompts and an audit log of tool calls.
 - Install extensions from a registry or an archive (`.nxext`), with signature checks.
 - Chat UI plus an LLM provider layer that drives Code Mode.

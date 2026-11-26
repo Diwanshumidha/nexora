@@ -106,9 +106,8 @@ func buildCommand(m *Manifest, opts spawnOptions) (*exec.Cmd, error) {
 		cmd.Env = minimalEnv(nil)
 		return cmd, nil
 	case RuntimeMCP:
-		// TODO: MCP servers speak a different JSON-RPC dialect; route them
-		// through internal/mcp's client adapter instead of this process.
-		return nil, fmt.Errorf("extension %s: mcp runtime not implemented yet", m.ID)
+		// MCP servers speak MCP, not the Nexora protocol: see connectMCP.
+		return nil, fmt.Errorf("extension %s: mcp servers are started by connectMCP", m.ID)
 	}
 	return nil, fmt.Errorf("unknown runtime %q", m.Runtime)
 }

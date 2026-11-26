@@ -147,6 +147,22 @@ The first-party extensions (Files, Web, Notes, PDF, CSV, Archive, Images,
 System, Excel, Word) and how to write your own are documented in the
 nexora-extensions repo.
 
+### MCP servers
+
+Any MCP server can be added as an extension: **+** → *Add an MCP server*.
+Give it a name and either the command that starts it (for example
+`npx -y @modelcontextprotocol/server-github`) or the URL of a remote server
+(streamable HTTP). Environment variables and headers you enter become the
+extension's settings, with tokens stored as secrets. Its tools then appear
+under `tools.<name>` with the same trust modes and approvals as any other
+extension.
+
+Local MCP servers are ordinary programs, so unlike Node extensions they are
+**not sandboxed**: they run with your user's access. They only get a minimal
+environment, never your shell's secrets. Only add servers you trust. See
+[MCP-server extensions](docs/architecture.md#mcp-server-extensions) for the
+manifest format.
+
 With the default *Ask first* mode, read tools run straight away and write
 tools wait for your approval in the ask window.
 

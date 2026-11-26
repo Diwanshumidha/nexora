@@ -14,6 +14,13 @@ func TestManifestValidate(t *testing.T) {
 		"absolute main":   func(m *Manifest) { m.Main = "/etc/evil.js" },
 		"unknown runtime": func(m *Manifest) { m.Runtime = "python" },
 		"mcp no command":  func(m *Manifest) { m.Runtime = RuntimeMCP },
+		"mcp command and url": func(m *Manifest) {
+			m.Runtime, m.Command, m.URL = RuntimeMCP, "npx", "https://example.com/mcp"
+		},
+		"mcp url scheme": func(m *Manifest) { m.Runtime, m.URL = RuntimeMCP, "file:///etc/passwd" },
+		"mcp unknown ref": func(m *Manifest) {
+			m.Runtime, m.Command, m.Env = RuntimeMCP, "npx", map[string]string{"TOKEN": "${tokn}"}
+		},
 	}
 	ok := base()
 	if err := ok.Validate(); err != nil {
@@ -24,6 +31,29 @@ func TestManifestValidate(t *testing.T) {
 		mutate(&m)
 		if m.Validate() == nil {
 			t.Errorf("%s: expected error", name)
+		}
+	}
+}
+
+func TestMCPManifestValid(t *testing.T) {
+	for _, m := range []Manifest{
+		{ID: "gh", Runtime: RuntimeMCP, Command: "npx", Args: []string{"-y", "server", "${DATA}"},
+			Env: map[string]string{"TOKEN": "${token}"}, Settings: []SettingSpec{{Key: "token", Type: SettingSecret, Label: "Token"}}},
+		{ID: "remote", Runtime: RuntimeMCP, URL: "https://example.com/mcp", Headers: map[string]string{"Authorization": "Bearer ${HOME}"}},
+	} {
+		if err := m.Validate(); err != nil {
+			t.Errorf("%s: %v", m.ID, err)
+		}
+	}
+}
+
+func TestJSToolName(t *testing.T) {
+	for in, want := range map[string]string{
+		"get_issue": "get_issue", "get-issue": "get_issue", "github.search": "github_search",
+		"2fa": "_2fa", "": "_", "camelCase": "camelCase",
+	} {
+		if got := jsToolName(in); got != want {
+			t.Errorf("jsToolName(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

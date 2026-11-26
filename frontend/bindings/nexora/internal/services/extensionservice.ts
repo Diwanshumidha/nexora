@@ -19,6 +19,15 @@ import * as extension$0 from "../extension/models.js";
 import * as $models from "./models.js";
 
 /**
+ * AddMCPServer adds an external MCP server as an extension and starts it.
+ * A server that fails to start is still added, so the user can fix its
+ * settings on its panel, where the error is shown.
+ */
+export function AddMCPServer(spec: extension$0.MCPServerSpec): $CancellablePromise<extension$0.Info | null> {
+    return $Call.ByID(2888098479, spec);
+}
+
+/**
  * Install adds an extension from a local folder containing nexora.json.
  */
 export function Install(dir: string): $CancellablePromise<extension$0.Info | null> {

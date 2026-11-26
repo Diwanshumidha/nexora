@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strings"
 )
 
 // ManifestFile is the file every extension folder must contain.
@@ -23,8 +25,9 @@ const (
 	// RuntimeNode runs a JS extension built on @nexora/extension-sdk in its
 	// own Node.js process.
 	RuntimeNode Runtime = "node"
-	// RuntimeMCP wraps an external MCP server (stdio) as an extension, so its
-	// tools appear under tools.<namespace>.* like any other extension.
+	// RuntimeMCP wraps an external MCP server as an extension, so its tools
+	// appear under tools.<namespace>.* like any other extension. The server
+	// is either a local command (stdio) or a remote URL (streamable HTTP).
 	RuntimeMCP Runtime = "mcp"
 )
 
@@ -47,10 +50,15 @@ type Manifest struct {
 	Runtime Runtime `json:"runtime"`
 	// Main is the entry file for RuntimeNode, relative to the extension dir.
 	Main string `json:"main,omitempty"`
-	// Command/Args/Env launch an external server for RuntimeMCP.
+	// Command/Args/Env launch a local MCP server over stdio (RuntimeMCP).
+	// URL/Headers connect to a remote one over streamable HTTP instead.
+	// Every value may reference settings as ${key}, and ${HOME}, ${DATA}
+	// (the private data dir) or ${DIR} (the extension dir).
 	Command string            `json:"command,omitempty"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
 
 	Permissions Permissions `json:"permissions"`
 
@@ -134,8 +142,18 @@ func (m *Manifest) Validate() error {
 			return fmt.Errorf("extension %s: main %q must be a relative path inside the extension", m.ID, m.Main)
 		}
 	case RuntimeMCP:
-		if m.Command == "" {
-			return fmt.Errorf("extension %s: runtime mcp requires command", m.ID)
+		switch {
+		case m.Command == "" && m.URL == "":
+			return fmt.Errorf("extension %s: runtime mcp requires command or url", m.ID)
+		case m.Command != "" && m.URL != "":
+			return fmt.Errorf("extension %s: runtime mcp takes command or url, not both", m.ID)
+		case m.URL != "" && !strings.HasPrefix(m.URL, "https://") && !strings.HasPrefix(m.URL, "http://"):
+			return fmt.Errorf("extension %s: url must start with https:// or http://", m.ID)
+		}
+		for _, ref := range mcpTemplateRefs(m) {
+			if !seen[ref] && !slices.Contains(builtinVars, ref) {
+				return fmt.Errorf("extension %s: ${%s} is not a setting", m.ID, ref)
+			}
 		}
 	default:
 		return fmt.Errorf("extension %s: unknown runtime %q", m.ID, m.Runtime)

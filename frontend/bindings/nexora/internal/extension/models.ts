@@ -37,6 +37,36 @@ export interface Info {
 }
 
 /**
+ * MCPServerSpec is what the user enters to add an MCP server.
+ */
+export interface MCPServerSpec {
+    "name": string;
+
+    /**
+     * Namespace under tools; derived from Name if empty.
+     */
+    "namespace"?: string;
+
+    /**
+     * CommandLine starts a local server over stdio, e.g.
+     * `npx -y @modelcontextprotocol/server-github`. Quotes group arguments.
+     */
+    "commandLine"?: string;
+
+    /**
+     * URL connects to a remote server over streamable HTTP instead.
+     */
+    "url"?: string;
+
+    /**
+     * Env and Headers become settings, so their values (often tokens) are
+     * kept in the settings store and can be changed later.
+     */
+    "env"?: { [_ in string]?: string } | null;
+    "headers"?: { [_ in string]?: string } | null;
+}
+
+/**
  * Manifest is the static description of an extension (nexora.json).
  */
 export interface Manifest {
@@ -66,11 +96,16 @@ export interface Manifest {
     "main"?: string;
 
     /**
-     * Command/Args/Env launch an external server for RuntimeMCP.
+     * Command/Args/Env launch a local MCP server over stdio (RuntimeMCP).
+     * URL/Headers connect to a remote one over streamable HTTP instead.
+     * Every value may reference settings as ${key}, and ${HOME}, ${DATA}
+     * (the private data dir) or ${DIR} (the extension dir).
      */
     "command"?: string;
     "args"?: string[] | null;
     "env"?: { [_ in string]?: string } | null;
+    "url"?: string;
+    "headers"?: { [_ in string]?: string } | null;
     "permissions": Permissions;
 
     /**
@@ -119,8 +154,9 @@ export enum Runtime {
     RuntimeNode = "node",
 
     /**
-     * RuntimeMCP wraps an external MCP server (stdio) as an extension, so its
-     * tools appear under tools.<namespace>.* like any other extension.
+     * RuntimeMCP wraps an external MCP server as an extension, so its tools
+     * appear under tools.<namespace>.* like any other extension. The server
+     * is either a local command (stdio) or a remote URL (streamable HTTP).
      */
     RuntimeMCP = "mcp",
 };

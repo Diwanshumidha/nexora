@@ -25,6 +25,7 @@ import { Icon, Logo, iconFor, type IconName } from "./icons";
 import { RunDetail } from "../components/RunDetail";
 import { SettingsForm } from "../components/SettingsForm";
 import type { SettingsView } from "../../bindings/nexora/internal/services/models";
+import type { MCPServerSpec } from "../../bindings/nexora/internal/extension/models";
 import type { Selection } from "./OrbitMap";
 
 interface Props {
@@ -409,7 +410,7 @@ function ExtensionPanel({ e, history, refresh, onSelect }: Props & { e: Extensio
 
       <TrustSection extId={m.id} runsCount={runs.length} refresh={refresh} />
 
-      <Section title="SANDBOX ACCESS">
+      {m.runtime === "mcp" ? <MCPConnection m={m} /> : <Section title="SANDBOX ACCESS">
         {granted.map(([kind, dir]) => (
           <div key={kind + dir} className="row">
             <Badge tone={kind === "edit" ? "pending" : "net"}>{kind === "edit" ? "READ+EDIT" : "READ"}</Badge>
@@ -428,7 +429,7 @@ function ExtensionPanel({ e, history, refresh, onSelect }: Props & { e: Extensio
             ))}
           </ul>
         )}
-      </Section>
+      </Section>}
 
       {runs.length > 0 && (
         <Section title="RECENT USE">
@@ -688,6 +689,30 @@ export function StateDot({ state }: { state: string }) {
   return <span className={`state-dot state-${state}`} aria-label={state} role="img" />;
 }
 
+/** How an MCP-server extension is reached, and what it can touch. */
+function MCPConnection({ m }: { m: NonNullable<ExtensionInfo["manifest"]> }) {
+  const command = [m.command, ...(m.args ?? [])].map((a) => (/\s/.test(a ?? "") ? JSON.stringify(a) : a)).join(" ");
+  return (
+    <Section title="MCP SERVER">
+      <ul className="rows">
+        <li className="row">
+          <Badge tone={m.url ? "net" : "pending"}>{m.url ? "REMOTE" : "LOCAL"}</Badge>
+          <span className="mono row-desc" title={m.url || command}>{m.url || command}</span>
+        </li>
+      </ul>
+      {m.url ? (
+        <p className="hint">Tool calls and their arguments are sent to this server.</p>
+      ) : (
+        <p className="hint">
+          Not sandboxed: the server runs as a program with your user's access to files and the network. It gets only a
+          minimal environment plus the variables above. Only add servers you trust.
+        </p>
+      )}
+      <p className="hint">Changing a setting restarts the server.</p>
+    </Section>
+  );
+}
+
 /* ----------------------------------------------------------------- add */
 
 function AddPanel({ refresh, onSelect }: Props) {
@@ -762,6 +787,14 @@ function AddPanel({ refresh, onSelect }: Props) {
       )}
 
       <details className="catalog-folder">
+        <summary>Add an MCP server</summary>
+        <MCPForm busy={busy} onAdd={(spec) => run(async () => {
+          const info = await Extensions.AddMCPServer(spec);
+          if (info?.manifest) onSelect({ kind: "extension", id: info.manifest.id });
+        })} />
+      </details>
+
+      <details className="catalog-folder">
         <summary>Install from a folder</summary>
         <form className="form"
           onSubmit={(ev) => {
@@ -782,6 +815,73 @@ function AddPanel({ refresh, onSelect }: Props) {
       </details>
       <p className="hint">Write your own with the SDK in the nexora-extensions repo.</p>
     </>
+  );
+}
+
+/** Parses "KEY=value" (env) or "Name: value" (headers) lines. */
+function parsePairs(text: string, sep: "=" | ":"): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    const i = line.indexOf(sep);
+    const key = (i < 0 ? line : line.slice(0, i)).trim();
+    if (key) out[key] = i < 0 ? "" : line.slice(i + 1).trim();
+  }
+  return out;
+}
+
+function MCPForm({ busy, onAdd }: { busy: boolean; onAdd: (spec: MCPServerSpec) => void }) {
+  const [remote, setRemote] = useState(false);
+  const [name, setName] = useState("");
+  const [command, setCommand] = useState("");
+  const [url, setUrl] = useState("");
+  const [pairs, setPairs] = useState("");
+  const target = remote ? url : command;
+  return (
+    <form className="form"
+      onSubmit={(ev) => {
+        ev.preventDefault();
+        onAdd(remote
+          ? { name, url: url.trim(), headers: parsePairs(pairs, ":") }
+          : { name, commandLine: command.trim(), env: parsePairs(pairs, "=") });
+      }}>
+      <p className="hint">
+        Wrap any MCP server as an extension: its tools appear under <code>tools.&lt;name&gt;</code> with the same
+        permission prompts as other extensions.
+      </p>
+      <div className="segmented two" role="radiogroup" aria-label="Server type">
+        <button type="button" role="radio" aria-checked={!remote} className={`seg ${!remote ? "on seg-trusted" : ""}`}
+          onClick={() => setRemote(false)}>Local command</button>
+        <button type="button" role="radio" aria-checked={remote} className={`seg ${remote ? "on seg-trusted" : ""}`}
+          onClick={() => setRemote(true)}>Remote URL</button>
+      </div>
+      <label className="field">
+        <span>Name</span>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="GitHub" required />
+      </label>
+      {remote ? (
+        <label className="field">
+          <span>Server URL (streamable HTTP)</span>
+          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/mcp" required />
+        </label>
+      ) : (
+        <label className="field">
+          <span>Command</span>
+          <input className="mono" value={command} onChange={(e) => setCommand(e.target.value)}
+            placeholder="npx -y @modelcontextprotocol/server-github" required />
+          <small>Runs unsandboxed with your user's access. Only add servers you trust.</small>
+        </label>
+      )}
+      <label className="field">
+        <span>{remote ? "Headers (optional, one per line)" : "Environment variables (optional, one per line)"}</span>
+        <textarea className="mono" rows={3} value={pairs} onChange={(e) => setPairs(e.target.value)}
+          placeholder={remote ? "Authorization: Bearer …" : "GITHUB_PERSONAL_ACCESS_TOKEN=ghp_…"} />
+        <small>Saved as settings of the extension. Tokens, keys and passwords are stored as secrets and can be changed later.</small>
+      </label>
+      <div className="insp-actions">
+        <button className="btn primary" type="submit" disabled={busy || !name.trim() || !target.trim()}>Add server</button>
+      </div>
+    </form>
   );
 }
 

@@ -67,6 +67,26 @@ func (s *ExtensionService) Install(ctx context.Context, dir string) (*extension.
 	return info, nil
 }
 
+// AddMCPServer adds an external MCP server as an extension and starts it.
+// A server that fails to start is still added, so the user can fix its
+// settings on its panel, where the error is shown.
+func (s *ExtensionService) AddMCPServer(ctx context.Context, spec extension.MCPServerSpec) (*extension.Info, error) {
+	man, values, err := extension.NewMCPManifest(spec)
+	if err != nil {
+		return nil, err
+	}
+	info, err := s.mgr.Create(man, values)
+	if err != nil {
+		return nil, err
+	}
+	s.log.Info("MCP server added", "id", man.ID, "remote", man.URL != "")
+	if err := s.mgr.Start(ctx, man.ID); err != nil {
+		s.log.Warn("MCP server failed to start", "id", man.ID, "err", err)
+	}
+	info, _ = s.mgr.Get(info.Manifest.ID)
+	return info, nil
+}
+
 // Remove uninstalls an extension and forgets its permissions, so a later
 // reinstall starts from the safe default.
 func (s *ExtensionService) Remove(ctx context.Context, id string) error {

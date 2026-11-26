@@ -9,6 +9,7 @@ export const icons = {
   image: "M4 5h16v14H4zM4 15l4-4 5 5 3-3 4 4M15 9a1 1 0 1 0 0 .01",
   cpu: "M7 7h10v10H7zM10 10h4v4h-4zM9 3v4M15 3v4M9 17v4M15 17v4M3 9h4M3 15h4M17 9h4M17 15h4",
   puzzle: "M10 4a2 2 0 1 1 4 0v2h4v4h-2a2 2 0 1 0 0 4h2v4h-4v-2a2 2 0 1 0-4 0v2H6v-4h2a2 2 0 1 0 0-4H6V6h4z",
+  plug: "M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4",
   folder: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
   mail: "M3 6h18v12H3zM3 7l9 6 9-6",
   calendar: "M4 6h16v14H4zM4 10h16M8 3v4M16 3v4",

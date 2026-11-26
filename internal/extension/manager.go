@@ -54,7 +54,7 @@ type entry struct {
 
 	// Guarded by Manager.mu.
 	info    Info
-	proc    *Process
+	live    conn // nil unless running
 	removed bool
 	// mainMod is the entry file's modification time when the process started.
 	mainMod time.Time
@@ -163,7 +163,7 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	defer e.lifecycle.Unlock()
 
 	m.mu.RLock()
-	removed, running := e.removed, e.proc != nil
+	removed, running := e.removed, e.live != nil
 	man, dir := e.info.Manifest, e.info.Dir
 	m.mu.RUnlock()
 	if removed {
@@ -183,36 +183,67 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 		stored = Values{}
 	}
 	values := resolve(man.Settings, stored)
-	grantRead, grantWrite := grantedFolders(man.Settings, values)
-	proc, err := spawn(man, spawnOptions{
-		Dir: dir, DataDir: dataDir, NodePath: m.cfg.NodePath,
-		GrantRead: grantRead, GrantWrite: grantWrite,
-	}, m.log)
-	if err != nil {
-		m.setError(e, err)
-		return err
-	}
 
-	tools, err := m.handshake(ctx, proc, id, dataDir, values)
-	if err != nil {
-		stopCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
-		defer cancel()
-		_ = proc.Stop(stopCtx)
-		err = fmt.Errorf("initialize %s: %w", id, err)
-		m.setError(e, err)
-		return err
+	var (
+		live  conn
+		tools []protocol.ToolSpec
+	)
+	switch man.Runtime {
+	case RuntimeMCP:
+		var mc *mcpConn
+		mc, tools, err = connectMCP(ctx, man, mcpOptions{
+			Dir: dir, DataDir: dataDir, Specs: man.Settings, Values: values,
+			OnToolsChanged: func(tools []protocol.ToolSpec) { m.setTools(e, mc, tools) },
+		}, m.log)
+		if err != nil {
+			err = fmt.Errorf("connect to MCP server %s: %w", id, err)
+			m.setError(e, err)
+			return err
+		}
+		live = mc
+	default:
+		grantRead, grantWrite := grantedFolders(man.Settings, values)
+		proc, err := spawn(man, spawnOptions{
+			Dir: dir, DataDir: dataDir, NodePath: m.cfg.NodePath,
+			GrantRead: grantRead, GrantWrite: grantWrite,
+		}, m.log)
+		if err != nil {
+			m.setError(e, err)
+			return err
+		}
+		tools, err = m.handshake(ctx, proc, id, dataDir, values)
+		if err != nil {
+			stopCtx, cancel := context.WithTimeout(context.Background(), stopTimeout)
+			defer cancel()
+			_ = proc.Stop(stopCtx)
+			err = fmt.Errorf("initialize %s: %w", id, err)
+			m.setError(e, err)
+			return err
+		}
+		live = proc
 	}
 
 	m.mu.Lock()
-	e.proc = proc
+	e.live = live
 	e.mainMod = mainModTime(man, dir)
 	e.info.Status = StatusRunning
 	e.info.Error = ""
-	e.info.Tools = tools
+	e.info.Tools = m.validTools(id, tools)
 	m.mu.Unlock()
 
-	go m.watch(e, proc)
+	go m.watch(e, live)
 	return nil
+}
+
+// setTools replaces a running extension's tools after it announced a change.
+func (m *Manager) setTools(e *entry, live conn, tools []protocol.ToolSpec) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e.live != live {
+		return // stopped or restarted since
+	}
+	e.info.Tools = m.validTools(e.info.Manifest.ID, tools)
+	m.log.Info("extension tools changed", "id", e.info.Manifest.ID, "tools", len(e.info.Tools))
 }
 
 func (m *Manager) handshake(ctx context.Context, proc *Process, id, dataDir string, values Values) ([]protocol.ToolSpec, error) {
@@ -225,12 +256,14 @@ func (m *Manager) handshake(ctx context.Context, proc *Process, id, dataDir stri
 		DataDir:     dataDir,
 		Settings:    values,
 	}, &res)
-	if err != nil {
-		return nil, err
-	}
-	tools := make([]protocol.ToolSpec, 0, len(res.Tools))
+	return res.Tools, err
+}
+
+// validTools drops tools whose names aren't JS identifiers, and duplicates.
+func (m *Manager) validTools(id string, in []protocol.ToolSpec) []protocol.ToolSpec {
+	tools := make([]protocol.ToolSpec, 0, len(in))
 	seen := map[string]bool{}
-	for _, t := range res.Tools {
+	for _, t := range in {
 		if !ValidToolName(t.Name) || seen[t.Name] {
 			m.log.Warn("ignoring invalid or duplicate tool", "extension", id, "tool", t.Name)
 			continue
@@ -238,24 +271,28 @@ func (m *Manager) handshake(ctx context.Context, proc *Process, id, dataDir stri
 		seen[t.Name] = true
 		tools = append(tools, t)
 	}
-	return tools, nil
+	return tools
 }
 
-// watch marks the extension as errored if its process dies unexpectedly.
-func (m *Manager) watch(e *entry, proc *Process) {
-	<-proc.Done()
+// watch marks the extension as errored if it exits or disconnects
+// unexpectedly.
+func (m *Manager) watch(e *entry, live conn) {
+	<-live.Done()
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if e.proc != proc {
+	if e.live != live {
 		return // stopped deliberately, or already replaced
 	}
-	e.proc = nil
+	e.live = nil
 	e.info.Status = StatusError
 	e.info.Error = "extension process exited unexpectedly"
-	if err := proc.ExitErr(); err != nil {
+	if e.info.Manifest.Runtime == RuntimeMCP {
+		e.info.Error = "MCP server stopped unexpectedly"
+	}
+	if err := live.ExitErr(); err != nil {
 		e.info.Error += ": " + err.Error()
 	}
-	m.log.Error("extension crashed", "id", e.info.Manifest.ID, "err", proc.ExitErr())
+	m.log.Error("extension crashed", "id", e.info.Manifest.ID, "err", live.ExitErr())
 }
 
 func (m *Manager) Stop(ctx context.Context, id string) error {
@@ -271,18 +308,18 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 // stopLocked stops e's process; the caller must hold e.lifecycle.
 func (m *Manager) stopLocked(ctx context.Context, e *entry) error {
 	m.mu.Lock()
-	proc := e.proc
-	e.proc = nil
+	live := e.live
+	e.live = nil
 	if e.info.Status == StatusRunning {
 		e.info.Status = StatusStopped
 	}
 	m.mu.Unlock()
-	if proc == nil {
+	if live == nil {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, stopTimeout)
 	defer cancel()
-	return proc.Stop(ctx)
+	return live.Stop(ctx)
 }
 
 // StartAll starts every discovered extension concurrently, logging failures.
@@ -360,7 +397,7 @@ func (m *Manager) Update(ctx context.Context, srcDir string) (*Info, error) {
 
 	e.lifecycle.Lock()
 	m.mu.RLock()
-	dir, wasRunning, oldNS := e.info.Dir, e.proc != nil, e.info.Manifest.Namespace
+	dir, wasRunning, oldNS := e.info.Dir, e.live != nil, e.info.Manifest.Namespace
 	other := m.byNS[man.Namespace]
 	m.mu.RUnlock()
 	if filepath.Dir(dir) != filepath.Clean(m.cfg.ExtensionsDir) {
@@ -413,6 +450,53 @@ func (m *Manager) Update(ctx context.Context, srcDir string) (*Info, error) {
 			info, _ := m.Get(man.ID)
 			return info, err
 		}
+	}
+	info, _ := m.Get(man.ID)
+	return info, nil
+}
+
+// Create installs an extension that has no files besides its manifest,
+// such as an MCP server added from the UI, with initial setting values.
+func (m *Manager) Create(man *Manifest, values Values) (*Info, error) {
+	if man.Runtime == RuntimeNode {
+		return nil, errors.New("node extensions need their code; install them from a folder")
+	}
+	if err := man.Validate(); err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	_, idTaken := m.exts[man.ID]
+	nsOwner := m.byNS[man.Namespace]
+	m.mu.RUnlock()
+	dst := filepath.Join(m.cfg.ExtensionsDir, man.ID)
+	if _, err := os.Stat(dst); idTaken || err == nil {
+		return nil, fmt.Errorf("an extension called %q already exists; pick another name", man.ID)
+	}
+	if nsOwner != nil {
+		return nil, fmt.Errorf("tools.%s is already used by %s; pick another namespace", man.Namespace, nsOwner.info.Manifest.Name)
+	}
+	values, err := m.policy.Validate(man.Settings, values)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := json.MarshalIndent(man, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return nil, err
+	}
+	err = os.WriteFile(filepath.Join(dst, ManifestFile), append(raw, '\n'), 0o600)
+	if err == nil {
+		err = m.settings.save(man.ID, values)
+	}
+	if err == nil {
+		err = m.register(dst)
+	}
+	if err != nil {
+		_ = os.RemoveAll(dst)
+		_ = m.settings.remove(man.ID)
+		return nil, err
 	}
 	info, _ := m.Get(man.ID)
 	return info, nil
@@ -510,7 +594,9 @@ func (m *Manager) Settings(id string) ([]SettingSpec, Values, error) {
 
 // SetSettings validates and saves new values, then applies them: settings
 // that grant folder access restart the extension (its sandbox is fixed at
-// launch); others are delivered to the running process.
+// launch), as does any change to an MCP server; others are delivered to the
+// running process. Saving settings of an MCP server that failed to start
+// retries the start.
 func (m *Manager) SetSettings(ctx context.Context, id string, in Values) (Values, error) {
 	e, err := m.lookup(id)
 	if err != nil {
@@ -531,23 +617,22 @@ func (m *Manager) SetSettings(ctx context.Context, id string, in Values) (Values
 	}
 
 	m.mu.RLock()
-	proc := e.proc
+	live, status, runtime := e.live, e.info.Status, e.info.Manifest.Runtime
 	m.mu.RUnlock()
-	if proc == nil {
+	if live == nil {
+		if status == StatusError && runtime == RuntimeMCP {
+			// Typically a missing token: try again with the new values.
+			return values, m.Start(ctx, id)
+		}
 		return values, nil
 	}
 	oldR, oldW := grantedFolders(specs, prev)
 	newR, newW := grantedFolders(specs, values)
-	if !slices.Equal(oldR, newR) || !slices.Equal(oldW, newW) {
-		if err := m.Stop(ctx, id); err != nil {
-			return values, err
-		}
-		return values, m.Start(ctx, id)
+	err = errRestartRequired
+	if slices.Equal(oldR, newR) && slices.Equal(oldW, newW) {
+		err = live.UpdateSettings(ctx, values)
 	}
-	err = proc.Call(ctx, protocol.MethodSettingsUpdate, protocol.SettingsUpdateParams{Settings: values}, nil)
-	var rpcErr *protocol.Error
-	if errors.As(err, &rpcErr) && rpcErr.Code == protocol.CodeMethodNotFound {
-		// Older SDK without live updates: restart to apply.
+	if errors.Is(err, errRestartRequired) {
 		if err := m.Stop(ctx, id); err != nil {
 			return values, err
 		}
@@ -571,7 +656,7 @@ func (m *Manager) Get(id string) (*Info, bool) {
 // Caller holds m.mu (read or write).
 func (m *Manager) infoLocked(e *entry) Info {
 	info := e.info
-	if e.proc != nil && !e.mainMod.IsZero() {
+	if e.live != nil && !e.mainMod.IsZero() {
 		info.Stale = mainModTime(e.info.Manifest, e.info.Dir).After(e.mainMod)
 	}
 	return info
@@ -604,15 +689,15 @@ func (m *Manager) List() []Info {
 func (m *Manager) CallTool(ctx context.Context, namespace, tool string, args json.RawMessage) (json.RawMessage, error) {
 	m.mu.RLock()
 	e := m.byNS[namespace]
-	var proc *Process
+	var live conn
 	if e != nil {
-		proc = e.proc
+		live = e.live
 	}
 	m.mu.RUnlock()
 	switch {
 	case e == nil:
 		return nil, fmt.Errorf("no extension provides namespace %q", namespace)
-	case proc == nil:
+	case live == nil:
 		return nil, fmt.Errorf("extension %q is not running", e.info.Manifest.ID)
 	}
 	if len(args) == 0 {
@@ -621,14 +706,7 @@ func (m *Manager) CallTool(ctx context.Context, namespace, tool string, args jso
 		// Invalid JSON would corrupt the frame stream for every caller.
 		return nil, errors.New("tool arguments are not valid JSON")
 	}
-	name, err := json.Marshal(tool)
-	if err != nil {
-		return nil, err
-	}
-	// Params are {"name":<tool>,"args":<args>}, sent in parts so args are
-	// never copied.
-	head := append(append([]byte(`{"name":`), name...), `,"args":`...)
-	return proc.CallRaw(ctx, protocol.MethodToolsCall, head, args, []byte("}"))
+	return live.CallTool(ctx, tool, args)
 }
 
 // Tool resolves tools.<namespace>.<tool> to its extension and spec. ok is
