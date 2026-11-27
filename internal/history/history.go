@@ -30,16 +30,20 @@ const (
 
 // Record is one finished run.
 type Record struct {
-	ID        string          `json:"id"`
-	Source    string          `json:"source"` // "app" or "mcp"
-	State     jobs.State      `json:"state"`
-	Code      string          `json:"code"`
-	Result    json.RawMessage `json:"result,omitempty"`
-	Truncated bool            `json:"truncated,omitempty"` // result was too large to keep
-	Error     string          `json:"error,omitempty"`
-	Logs      []string        `json:"logs,omitempty"`
-	Tools     []string        `json:"tools,omitempty"` // "namespace.tool", first use order
-	ToolCalls int             `json:"toolCalls"`
+	ID     string          `json:"id"`
+	Source string          `json:"source"` // "app", "mcp" or "schedule"
+	State  jobs.State      `json:"state"`
+	Code   string          `json:"code"`
+	Args   json.RawMessage `json:"args,omitempty"`
+	// ScriptID and ScriptName identify the saved script that ran, if any.
+	ScriptID   string          `json:"scriptId,omitempty"`
+	ScriptName string          `json:"scriptName,omitempty"`
+	Result     json.RawMessage `json:"result,omitempty"`
+	Truncated  bool            `json:"truncated,omitempty"` // result was too large to keep
+	Error      string          `json:"error,omitempty"`
+	Logs       []string        `json:"logs,omitempty"`
+	Tools      []string        `json:"tools,omitempty"` // "namespace.tool", first use order
+	ToolCalls  int             `json:"toolCalls"`
 	// Calls is the timeline of tool calls with their arguments and outcome.
 	Calls []codemode.Call `json:"calls,omitempty"`
 	// Approvals records permission prompts and blocks during the run.
@@ -53,7 +57,8 @@ type Record struct {
 func FromJob(j jobs.Job) Record {
 	r := Record{
 		ID: j.ID, Source: j.Source, State: j.State, Error: j.Error,
-		Code:      truncate(j.Input, maxCodeBytes),
+		Code: truncate(j.Input, maxCodeBytes),
+		Args: j.Args, ScriptID: j.ScriptID, ScriptName: j.ScriptName,
 		CreatedAt: j.CreatedAt, StartedAt: j.StartedAt, FinishedAt: j.FinishedAt,
 	}
 	if res, ok := j.Result.(*codemode.Result); ok && res != nil {

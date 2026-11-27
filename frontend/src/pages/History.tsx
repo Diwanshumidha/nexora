@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { RunDetail } from "../components/RunDetail";
 import { History, type Approval, type RunSummary } from "../lib/api";
 import { duration, timeAgo, useLive, useRun } from "../lib/useLive";
+import { sourceIcon, sourceShort } from "../lib/source";
 import { Icon } from "../orbit/icons";
 
 type StateFilter = "all" | "succeeded" | "failed" | "live";
-type SourceFilter = "all" | "mcp" | "app";
+type SourceFilter = "all" | "mcp" | "app" | "schedule";
 
 const STATE_FILTERS: [StateFilter, string][] = [["all", "All"], ["succeeded", "Succeeded"], ["failed", "Failed"], ["live", "Running"]];
-const SOURCE_FILTERS: [SourceFilter, string][] = [["all", "Anyone"], ["mcp", "AI"], ["app", "You"]];
+const SOURCE_FILTERS: [SourceFilter, string][] = [["all", "Anyone"], ["mcp", "AI"], ["app", "You"], ["schedule", "Schedule"]];
 
 interface Props {
   selectedId: string | null;
@@ -18,9 +19,11 @@ interface Props {
   onOpenExtension: (namespace: string) => void;
   /** Opens a run's script in Code mode for editing. */
   onEdit: (code: string) => void;
+  /** Opens the Scripts page: a saved script by id, or a new one with this code. */
+  onOpenScript: (target: { id: string } | { code: string }) => void;
 }
 
-export default function HistoryPage({ selectedId, onSelect, approvals, onReview, onOpenExtension, onEdit }: Props) {
+export default function HistoryPage({ selectedId, onSelect, approvals, onReview, onOpenExtension, onEdit, onOpenScript }: Props) {
   // Summaries only: full runs (script, arguments, logs) are fetched one at a
   // time for the run being shown.
   const [records, refresh] = useLive(async () => (await History.Summaries(500)) ?? [], 3000, [] as RunSummary[]);
@@ -40,6 +43,7 @@ export default function HistoryPage({ selectedId, onSelect, approvals, onReview,
       if (!q) return true;
       return (
         r.title.toLowerCase().includes(q) ||
+        (r.scriptName ?? "").toLowerCase().includes(q) ||
         (r.tools ?? []).some((t) => t.toLowerCase().includes(q)) ||
         (r.error ?? "").toLowerCase().includes(q) ||
         r.id.includes(q)
@@ -109,12 +113,12 @@ export default function HistoryPage({ selectedId, onSelect, approvals, onReview,
                 <button className={`run-item ${r.id === selectedId ? "selected" : ""}`} aria-current={r.id === selectedId}
                   onClick={() => onSelect(r.id)}>
                   <span className={`run-icon state-${r.state}`}>
-                    <Icon name={r.source === "mcp" ? "ai" : "user"} size={15} />
+                    <Icon name={sourceIcon(r.source)} size={15} />
                   </span>
                   <span className="run-main">
-                    <span className="run-summary mono">{summary(r)}</span>
+                    <span className={`run-summary ${r.scriptName ? "" : "mono"}`}>{summary(r)}</span>
                     <span className="run-sub">
-                      {r.source === "mcp" ? "AI" : "You"} · {r.state}
+                      {sourceShort(r.source)} · {r.state}
                       {r.finishedAt && ` · ${duration(r.startedAt, r.finishedAt)}`}
                       {approvals.some((a) => a.jobId === r.id) && <span className="tone-text-pending"> · needs you</span>}
                     </span>
@@ -147,6 +151,15 @@ export default function HistoryPage({ selectedId, onSelect, approvals, onReview,
                 <button className="btn ghost" onClick={() => onEdit(selected.code)}>
                   <Icon name="code" size={16} /> Edit in Code mode
                 </button>
+                {selected.scriptId ? (
+                  <button className="btn ghost" onClick={() => onOpenScript({ id: selected.scriptId! })}>
+                    <Icon name="scroll" size={16} /> Open script
+                  </button>
+                ) : (
+                  <button className="btn ghost" onClick={() => onOpenScript({ code: selected.code })}>
+                    <Icon name="scroll" size={16} /> Save as script
+                  </button>
+                )}
                 {actionError && <p className="error">{actionError}</p>}
               </>
             }
@@ -159,8 +172,10 @@ export default function HistoryPage({ selectedId, onSelect, approvals, onReview,
   );
 }
 
-/** One line describing a run: the tools it used, else its first code line. */
+/** One line describing a run: its saved script, else the tools it used,
+ *  else its first code line. */
 function summary(r: RunSummary): string {
+  if (r.scriptName) return r.scriptName;
   const tools = r.tools ?? [];
   if (tools.length) return tools.slice(0, 3).join(", ") + (tools.length > 3 ? ` +${tools.length - 3}` : "");
   return r.title;

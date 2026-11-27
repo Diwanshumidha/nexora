@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { Extensions, Permissions, Runtime, RuntimeState, Setup, Updates, openExternal, type RuntimeStatus, type UpdateInfo } from "./lib/api";
 import { useLive } from "./lib/useLive";
+import { askingWho } from "./lib/source";
 import OrbitPage from "./pages/Orbit";
 import PlaygroundPage from "./pages/Playground";
 import HistoryPage from "./pages/History";
+import ScriptsPage, { type ScriptTarget } from "./pages/Scripts";
 import SetupPage from "./pages/Setup";
 import { Icon, Logo, type IconName } from "./orbit/icons";
 import type { Selection } from "./orbit/OrbitMap";
 
-type Page = "orbit" | "history" | "code";
+type Page = "orbit" | "history" | "scripts" | "code";
 
 /** The update the user said "Later" to; a newer one shows again. */
 const DISMISSED_UPDATE_KEY = "nexora.dismissed-update";
@@ -16,6 +18,7 @@ const DISMISSED_UPDATE_KEY = "nexora.dismissed-update";
 const pages: { id: Page; label: string; icon: IconName }[] = [
   { id: "orbit", label: "Orbit", icon: "orbit" },
   { id: "history", label: "History", icon: "history" },
+  { id: "scripts", label: "Scripts", icon: "scroll" },
   { id: "code", label: "Code mode", icon: "terminal" },
 ];
 
@@ -25,6 +28,8 @@ export default function App() {
   const [runId, setRunId] = useState<string | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const takeDraft = useCallback(() => setDraft(null), []);
+  const [scriptTarget, setScriptTarget] = useState<ScriptTarget | null>(null);
+  const takeScriptTarget = useCallback(() => setScriptTarget(null), []);
   // Approvals are polled app-wide: a script may pause for one while you're
   // on any page.
   const [approvals, refreshApprovals] = useLive(async () => (await Permissions.Approvals()) ?? [], 1000, []);
@@ -81,6 +86,10 @@ export default function App() {
     setDraft(code);
     setPage("code");
   };
+  const openScript = (target: ScriptTarget) => {
+    setScriptTarget(target);
+    setPage("scripts");
+  };
 
   if (setup === "checking") return <div className="shell" />;
   if (setup === "show") return <SetupPage onFinish={closeSetup} onSkip={closeSetup} />;
@@ -122,7 +131,7 @@ export default function App() {
           <div className="approval-banner" role="alert">
             <span className="banner-dot" aria-hidden="true" />
             <span>
-              <strong>{first.source === "mcp" ? "An AI" : "Your script"}</strong> wants to run{" "}
+              <strong>{askingWho(first.source, first.scriptName)}</strong> wants to run{" "}
               <code>{first.namespace}.{first.tool}()</code>
               {approvals.length > 1 && <span className="muted"> · {approvals.length - 1} more waiting</span>}
             </span>
@@ -135,11 +144,15 @@ export default function App() {
         )}
         {page === "history" && (
           <HistoryPage selectedId={runId} onSelect={setRunId} approvals={approvals} onReview={review}
-            onOpenExtension={openExtension} onEdit={editScript} />
+            onOpenExtension={openExtension} onEdit={editScript} onOpenScript={openScript} />
+        )}
+        {page === "scripts" && (
+          <ScriptsPage target={scriptTarget} onTargetTaken={takeScriptTarget} approvals={approvals} onReview={review}
+            onOpenExtension={openExtension} onOpenRun={openRun} />
         )}
         {page === "code" && (
           <PlaygroundPage draft={draft} onDraftTaken={takeDraft} approvals={approvals} onReview={review}
-            onOpenExtension={openExtension} onOpenRun={openRun} />
+            onOpenExtension={openExtension} onOpenRun={openRun} onSaveAsScript={(code) => openScript({ code })} />
         )}
       </div>
     </div>

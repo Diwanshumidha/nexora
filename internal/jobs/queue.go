@@ -11,6 +11,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime/debug"
@@ -45,6 +46,8 @@ var (
 type Info struct {
 	ID     string
 	Source string
+	// ScriptName is the saved script the job runs, if any.
+	ScriptName string
 }
 
 type ctxKey struct{}
@@ -65,21 +68,29 @@ type Spec struct {
 	Source string
 	// Input is the job's input (e.g. the script), kept for display/history.
 	Input string
+	// Args are the arguments the script runs with (saved scripts only).
+	Args json.RawMessage
+	// ScriptID and ScriptName identify the saved script being run, if any.
+	ScriptID   string
+	ScriptName string
 }
 
 // Job is an immutable snapshot of a job's state.
 type Job struct {
-	ID         string     `json:"id"`
-	Label      string     `json:"label,omitempty"`
-	Source     string     `json:"source,omitempty"`
-	Input      string     `json:"input,omitempty"`
-	State      State      `json:"state"`
-	Position   int        `json:"position,omitempty"` // 1-based place in the queue while queued
-	Result     any        `json:"result,omitempty"`
-	Error      string     `json:"error,omitempty"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	StartedAt  *time.Time `json:"startedAt,omitempty"`
-	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+	ID         string          `json:"id"`
+	Label      string          `json:"label,omitempty"`
+	Source     string          `json:"source,omitempty"`
+	Input      string          `json:"input,omitempty"`
+	Args       json.RawMessage `json:"args,omitempty"`
+	ScriptID   string          `json:"scriptId,omitempty"`
+	ScriptName string          `json:"scriptName,omitempty"`
+	State      State           `json:"state"`
+	Position   int             `json:"position,omitempty"` // 1-based place in the queue while queued
+	Result     any             `json:"result,omitempty"`
+	Error      string          `json:"error,omitempty"`
+	CreatedAt  time.Time       `json:"createdAt"`
+	StartedAt  *time.Time      `json:"startedAt,omitempty"`
+	FinishedAt *time.Time      `json:"finishedAt,omitempty"`
 }
 
 type Options struct {
@@ -143,6 +154,7 @@ func (q *Queue) Submit(spec Spec, task Task) (Job, error) {
 	j := &job{
 		snap: Job{
 			ID: newID(), Label: spec.Label, Source: spec.Source, Input: spec.Input,
+			Args: spec.Args, ScriptID: spec.ScriptID, ScriptName: spec.ScriptName,
 			State: StateQueued, CreatedAt: time.Now(),
 		},
 		task: task,
@@ -291,7 +303,7 @@ func (q *Queue) worker() {
 		q.waiting = q.waiting[1:]
 
 		ctx, cancel := context.WithTimeout(
-			context.WithValue(context.Background(), ctxKey{}, Info{ID: j.snap.ID, Source: j.snap.Source}),
+			context.WithValue(context.Background(), ctxKey{}, Info{ID: j.snap.ID, Source: j.snap.Source, ScriptName: j.snap.ScriptName}),
 			q.opts.MaxRuntime)
 		now := time.Now()
 		j.cancel = cancel

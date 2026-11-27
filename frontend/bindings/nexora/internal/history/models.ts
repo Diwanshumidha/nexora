@@ -21,11 +21,18 @@ export interface Record {
     "id": string;
 
     /**
-     * "app" or "mcp"
+     * "app", "mcp" or "schedule"
      */
     "source": string;
     "state": jobs$0.State;
     "code": string;
+    "args"?: json$0.RawMessage;
+
+    /**
+     * ScriptID and ScriptName identify the saved script that ran, if any.
+     */
+    "scriptId"?: string;
+    "scriptName"?: string;
     "result"?: json$0.RawMessage;
 
     /**

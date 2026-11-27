@@ -42,7 +42,8 @@ var (
 type Approval struct {
 	ID          string          `json:"id"`
 	JobID       string          `json:"jobId,omitempty"`
-	Source      string          `json:"source,omitempty"` // who ran the script: "app" or "mcp"
+	Source      string          `json:"source,omitempty"`     // who ran the script: "app", "mcp" or "schedule"
+	ScriptName  string          `json:"scriptName,omitempty"` // the saved script asking, if any
 	ExtensionID string          `json:"extensionId"`
 	Namespace   string          `json:"namespace"`
 	Tool        string          `json:"tool"`
@@ -134,7 +135,7 @@ func (g *Gate) ask(ctx context.Context, extID, ns string, spec protocol.ToolSpec
 		answer: make(chan Choice, 1),
 	}
 	if hasJob {
-		a.JobID, a.Source = info.ID, info.Source
+		a.JobID, a.Source, a.ScriptName = info.ID, info.Source, info.ScriptName
 	}
 
 	g.mu.Lock()

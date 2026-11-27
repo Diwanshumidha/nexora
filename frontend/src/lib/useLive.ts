@@ -44,6 +44,16 @@ export function timeAgo(iso: string | null | undefined): string {
   return `${Math.floor(s / 86400)}d`;
 }
 
+/** Time left until iso, e.g. "5m"; "<1m" when due or past. */
+export function timeUntil(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const s = (new Date(iso).getTime() - Date.now()) / 1000;
+  if (s < 60) return "<1m";
+  if (s < 3600) return `${Math.round(s / 60)}m`;
+  if (s < 86400) return `${Math.round(s / 3600)}h`;
+  return `${Math.round(s / 86400)}d`;
+}
+
 export function duration(start?: string | null, end?: string | null): string {
   if (!start) return "";
   const ms = (end ? new Date(end) : new Date()).getTime() - new Date(start).getTime();

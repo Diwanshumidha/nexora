@@ -135,8 +135,9 @@ that only have WebKitGTK 4.1 (`webkit2gtk-4.1`), build with the `gtk3` tag:
 
 ## Connecting ChatGPT / Claude (MCP)
 
-Nexora serves an MCP endpoint (streamable HTTP) with four tools: `get_api`,
-`run_code`, `get_job` and `cancel_job`. The URL including its secret token is
+Nexora serves an MCP endpoint (streamable HTTP) with the Code Mode tools
+`get_api`, `run_code`, `get_job` and `cancel_job`, plus `list_scripts`,
+`run_script` and `save_script` for [saved scripts](#saved-scripts-and-schedules). The URL including its secret token is
 shown on the **Connect AI** page (the token lives in `~/.config/nexora/mcp-token`).
 
 The endpoint listens on localhost. Hosted AIs such as ChatGPT run in the
@@ -275,6 +276,36 @@ It is a cache, not a database, so it cleans itself up:
 available. Store calls need no approval: it is Nexora's own scratch space.
 **Code mode → Storage** shows what is stored and lets you delete entries.
 Extensions can't use the `store` namespace.
+
+### Saved scripts and schedules
+
+The **Scripts** page keeps scripts you want to run again. Save one from Code
+mode or History (**Save as script**), or start a new one there. A script can
+declare **parameters** (string, number, boolean or JSON, each optionally
+required or with a default), which it reads from the global `args`:
+
+```js
+const files = await tools.files.list({ path: args.folder })
+return files.filter((f) => f.size > args.minBytes)
+```
+
+**Run** asks for the arguments and shows the run's timeline in place; every
+run is also in History, tagged with the script's name.
+
+A script can also run **on a schedule**: every N minutes, hours or days,
+daily at a time, or on chosen weekdays at a time (local time). Scheduled
+runs use the arguments set next to the schedule, and keep running while
+Nexora is in the tray with its window closed. A run never overlaps the
+script's previous one, which is skipped instead. Runs missed while Nexora was
+closed are skipped, unless *catch up* is on, which gives one run shortly
+after launch. Schedules use the same trust settings as everything else, so a
+tool set to *Ask first* still asks: make the tools a scheduled script uses
+trusted if it should run unattended.
+
+Connected AIs see saved scripts too: `list_scripts` and `run_script` let them
+reuse a script by name, and `save_script` lets them save a new one. An AI
+can't edit, replace or schedule a script; only you can, in the app. Scripts
+live in `~/.config/nexora/scripts.json` (readable only by you).
 
 ### MCP servers
 

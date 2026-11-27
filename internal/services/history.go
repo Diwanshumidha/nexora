@@ -43,6 +43,8 @@ func (s *HistoryService) List(limit int) []history.Record {
 type Summary struct {
 	ID         string     `json:"id"`
 	Source     string     `json:"source"`
+	ScriptID   string     `json:"scriptId,omitempty"`
+	ScriptName string     `json:"scriptName,omitempty"`
 	State      jobs.State `json:"state"`
 	Tools      []string   `json:"tools"`
 	ToolCalls  int        `json:"toolCalls"`
@@ -59,7 +61,7 @@ func (s *HistoryService) Summaries(limit int) []Summary {
 	out := make([]Summary, len(recs))
 	for i, r := range recs {
 		out[i] = Summary{
-			ID: r.ID, Source: r.Source, State: r.State, Tools: r.Tools, ToolCalls: r.ToolCalls,
+			ID: r.ID, Source: r.Source, ScriptID: r.ScriptID, ScriptName: r.ScriptName, State: r.State, Tools: r.Tools, ToolCalls: r.ToolCalls,
 			Error: firstLine(r.Error), Title: scriptTitle(r.Code), CreatedAt: stamp(&r.CreatedAt),
 			StartedAt: stamp(r.StartedAt), FinishedAt: stamp(r.FinishedAt),
 		}
@@ -119,7 +121,10 @@ func (s *HistoryService) Rerun(id string) (jobs.Job, error) {
 	if err != nil {
 		return jobs.Job{}, err
 	}
-	return s.runner.Submit(r.Code, runner.SourceApp)
+	return s.runner.SubmitSpec(jobs.Spec{
+		Label: "run_code", Source: runner.SourceApp, Input: r.Code,
+		Args: r.Args, ScriptID: r.ScriptID, ScriptName: r.ScriptName,
+	})
 }
 
 func (s *HistoryService) Cancel(id string) (jobs.Job, error) {

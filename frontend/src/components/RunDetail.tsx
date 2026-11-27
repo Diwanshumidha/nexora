@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import type { Approval, HistoryRecord } from "../lib/api";
 import { duration } from "../lib/useLive";
+import { sourceIcon, sourceLong } from "../lib/source";
 import { Icon, type IconName } from "../orbit/icons";
 
 type Call = NonNullable<HistoryRecord["calls"]>[number];
@@ -45,10 +46,10 @@ export function RunDetail({ rec, waiting = [], onReview, onOpenExtension, action
     <div className="run-detail">
       <div className="run-head">
         <span className={`insp-icon tone-${STATE_TONE[rec.state] ?? "dim"}`}>
-          <Icon name={rec.source === "mcp" ? "ai" : "user"} size={22} />
+          <Icon name={sourceIcon(rec.source)} size={22} />
         </span>
         <div className="insp-title">
-          <h2>{rec.source === "mcp" ? "AI via MCP" : "You"}</h2>
+          <h2>{sourceLong(rec.source)}{rec.scriptName && <span className="muted"> · {rec.scriptName}</span>}</h2>
           <span className="mono muted">
             {new Date(rec.createdAt).toLocaleString()} · <CopyText text={rec.id} label={rec.id.slice(0, 16)} />
           </span>
@@ -103,6 +104,12 @@ export function RunDetail({ rec, waiting = [], onReview, onOpenExtension, action
       {(rec.logs ?? []).length > 0 && (
         <Block title="CONSOLE">
           <pre className="code">{(rec.logs ?? []).join("\n")}</pre>
+        </Block>
+      )}
+
+      {rec.args && Object.keys(rec.args).length > 0 && (
+        <Block title="ARGUMENTS">
+          <pre className="code">{JSON.stringify(rec.args, null, 2)}</pre>
         </Block>
       )}
 

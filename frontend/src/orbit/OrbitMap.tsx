@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { memo } from "react";
 import type { Approval, ExtensionInfo, NetworkEndpoint, RunSummary } from "../lib/api";
 import { timeAgo } from "../lib/useLive";
+import { sourceIcon, sourceLong, sourceShort } from "../lib/source";
 import { Icon, Logo, iconFor, type IconName } from "./icons";
 
 export type Selection =
@@ -278,12 +279,12 @@ export const OrbitMap = memo(function OrbitMap({ network, extensions, history, m
               <button
                 className={`node node-history state-${h.state} ${isSel(p.sel) ? "selected" : ""}`}
                 aria-pressed={isSel(p.sel)}
-                aria-label={`${h.source === "mcp" ? "AI" : "You"} run, ${h.state}, ${timeAgo(h.createdAt)} ago`}
-                title={`${h.state} · ${h.source === "mcp" ? "AI via MCP" : "You"} · ${(h.tools ?? []).join(", ") || "no tools"}`}
+                aria-label={`${sourceShort(h.source)} run, ${h.state}, ${timeAgo(h.createdAt)} ago`}
+                title={`${h.state} · ${sourceLong(h.source)} · ${(h.tools ?? []).join(", ") || "no tools"}`}
                 onClick={() => onSelect(p.sel)}
               >
                 <span className="dot">
-                  <Icon name={h.source === "mcp" ? "ai" : "user"} size={14} />
+                  <Icon name={sourceIcon(h.source)} size={14} />
                 </span>
                 <span className="node-meta">{timeAgo(h.createdAt)}</span>
               </button>

@@ -285,3 +285,19 @@ func TestRunUnknownToolsExplain(t *testing.T) {
 		t.Fatalf("got %s", got)
 	}
 }
+
+func TestRunWithArgs(t *testing.T) {
+	rt := New(&fakeCaller{}, Options{})
+	res, err := rt.RunWithArgs(context.Background(), `return args.path + ":" + args.n * 2`, nil, json.RawMessage(`{"path":"/a","n":21}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Value != "/a:42" {
+		t.Fatalf("got %v", res.Value)
+	}
+	// Plain runs see an empty object, so `args.x` is undefined, not an error.
+	res, err = rt.Run(context.Background(), `return Object.keys(args).length`, nil)
+	if err != nil || res.Value != int64(0) && res.Value != float64(0) {
+		t.Fatalf("got %v, %v", res.Value, err)
+	}
+}

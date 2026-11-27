@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Choice, Connect, History, Permissions, type Approval, type ConsentRequest } from "./lib/api";
 import { useLive } from "./lib/useLive";
+import { askingWho, sourceIcon } from "./lib/source";
 import { Icon, Logo } from "./orbit/icons";
 
 /** How long the Allow buttons stay locked after a request appears, so a
@@ -149,14 +150,13 @@ function AskCard({ a }: { a: Approval }) {
   };
 
   const left = Math.max(0, Math.round((new Date(a.expiresAt).getTime() - now) / 1000));
-  const fromAI = a.source === "mcp";
-
+  
   return (
     <main className="ask-card">
       <div className="ask-who">
-        <span className="ask-who-icon"><Icon name={fromAI ? "ai" : "user"} size={18} /></span>
+        <span className="ask-who-icon"><Icon name={sourceIcon(a.source)} size={18} /></span>
         <span>
-          <strong>{fromAI ? "An AI" : "A script you ran"}</strong> wants to use{" "}
+          <strong>{askingWho(a.source, a.scriptName)}</strong> wants to use{" "}
           <strong>{a.extensionId}</strong>
         </span>
       </div>

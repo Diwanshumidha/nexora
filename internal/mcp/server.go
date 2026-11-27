@@ -27,6 +27,7 @@ import (
 	"nexora/internal/extension"
 	"nexora/internal/jobs"
 	"nexora/internal/runner"
+	"nexora/internal/scripts"
 )
 
 type Options struct {
@@ -36,6 +37,8 @@ type Options struct {
 	// ProgressInterval is how often progress notifications are sent while
 	// waiting, for clients that pass a progress token.
 	ProgressInterval time.Duration
+	// Scripts, if set, adds list_scripts, run_script and save_script.
+	Scripts *scripts.Manager
 }
 
 func (o *Options) defaults() {
@@ -59,6 +62,12 @@ const instructions = `Nexora gives you access to the user's local extensions (sp
    Do not resubmit the same script while it is still running.
 4. tools.store (when listed by get_api) is a cache that keeps JSON between runs, e.g. to remember
    what a previous run already processed. Entries expire and may be evicted, so handle a miss.`
+
+const scriptInstructions = `
+5. The user keeps saved scripts. Call list_scripts to see them, and run_script to run one by name
+   with arguments (scripts read them as the global "args"). Prefer a saved script that does the job
+   over writing a new one. When you've written a script the user will want again, offer to keep it
+   with save_script; give it parameters instead of hard-coded paths or values.`
 
 // RunCodeInput is the input of run_code.
 type RunCodeInput struct {
@@ -104,8 +113,12 @@ func NewServer(r *runner.Runner, opts Options) *mcp.Server {
 	opts.defaults()
 	s := &server{runner: r, opts: opts}
 
+	instr := instructions
+	if opts.Scripts != nil {
+		instr += scriptInstructions
+	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "nexora", Title: "Nexora", Version: extension.HostVersion},
-		&mcp.ServerOptions{Instructions: instructions})
+		&mcp.ServerOptions{Instructions: instr})
 
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true}
 	mcp.AddTool(srv, &mcp.Tool{
@@ -127,6 +140,9 @@ func NewServer(r *runner.Runner, opts Options) *mcp.Server {
 		Name:        "cancel_job",
 		Description: "Cancel a queued or running run_code job.",
 	}, s.cancelJob)
+	if opts.Scripts != nil {
+		s.addScriptTools(srv, readOnly)
+	}
 	return srv
 }
 

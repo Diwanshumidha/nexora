@@ -3,6 +3,9 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as json$0 from "../../../encoding/json/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as cache$0 from "../cache/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -16,6 +19,9 @@ import * as network$0 from "../network/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as permissions$0 from "../permissions/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as scripts$0 from "../scripts/models.js";
 
 /**
  * CatalogItem is one catalog entry and how it relates to what's installed.
@@ -125,6 +131,20 @@ export interface NetworkEndpoint {
 }
 
 /**
+ * ScriptInput is what the editor changes; creation details and run state
+ * are kept by the store.
+ */
+export interface ScriptInput {
+    "id": string;
+    "name": string;
+    "description": string;
+    "code": string;
+    "params": scripts$0.Param[] | null;
+    "schedule": scripts$0.Schedule | null;
+    "scheduleArgs": json$0.RawMessage;
+}
+
+/**
  * SettingsView is an extension's settings form: specs plus current values.
  * Secret values are never sent to the UI; SecretsSet says which are filled.
  */
@@ -158,6 +178,8 @@ export interface StorageView {
 export interface Summary {
     "id": string;
     "source": string;
+    "scriptId"?: string;
+    "scriptName"?: string;
     "state": jobs$0.State;
     "tools": string[] | null;
     "toolCalls": number;

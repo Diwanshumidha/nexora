@@ -11,6 +11,8 @@ export * as Storage from "../../bindings/nexora/internal/services/storageservice
 export * as Runtime from "../../bindings/nexora/internal/services/runtimeservice";
 export * as Setup from "../../bindings/nexora/internal/services/setupservice";
 export * as Updates from "../../bindings/nexora/internal/services/updateservice";
+export * as Scripts from "../../bindings/nexora/internal/services/scriptsservice";
+export type { Script as SavedScript, Param as ScriptParam, Schedule as ScriptSchedule } from "../../bindings/nexora/internal/scripts/models";
 export type { Info as UpdateInfo } from "../../bindings/nexora/internal/updates/models";
 
 import { Browser } from "@wailsio/runtime";

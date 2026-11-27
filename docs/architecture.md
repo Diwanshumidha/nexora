@@ -167,6 +167,27 @@ aside and the cache starts empty.
 
 Run `go test -tags gtk3 -run x -bench . -benchmem ./internal/...` to measure.
 
+### Saved scripts
+
+`internal/scripts` stores named scripts with typed parameters and an
+optional schedule (`scripts.json`, 0600, rewritten atomically). A run
+resolves its arguments (given values over defaults, checked against the
+parameter types) and submits a `jobs.Spec` carrying the code, the arguments
+and the script's ID and name. The runtime exposes the arguments as the
+global `args` (`codemode.Runtime.RunWithArgs`); history records and approval
+prompts show the script's name.
+
+The scheduler checks every 15 s by comparing wall-clock times against each
+script's `nextRun`, rather than sleeping until it: Go timers run on the
+monotonic clock, which stops during suspend, so a run due while the laptop
+slept starts soon after it wakes. A due script is skipped while its last job
+is still live. After firing, `nextRun` is computed from the current time, so
+missed slots collapse into one run. At launch, runs missed while Nexora was
+closed are skipped unless the schedule has `catchUp`, and the first check
+waits 30 s for extensions to start. Scheduled jobs use the source
+`schedule`. Over MCP, `save_script` only creates new, unscheduled scripts
+(`createdBy: "mcp"`); only the app may change or schedule a script.
+
 ## Job queue and MCP endpoint
 
 Every script, whether from the UI or an external AI, goes through

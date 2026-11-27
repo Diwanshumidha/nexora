@@ -29,6 +29,7 @@ import (
 	"nexora/internal/permissions"
 	"nexora/internal/registry"
 	"nexora/internal/runner"
+	"nexora/internal/scripts"
 	"nexora/internal/services"
 	"nexora/internal/updates"
 	"nexora/internal/version"
@@ -109,8 +110,10 @@ func main() {
 	}
 	defer hist.Close()
 	// The queue reports finished jobs to history, which needs the runner's
-	// permission events; the hook only fires once jobs exist, after run is set.
+	// permission events, and to saved scripts; the hook only fires once jobs
+	// exist, after run and saved are set.
 	var run *runner.Runner
+	var saved *scripts.Manager
 	queue := jobs.New(jobs.Options{
 		Workers:    cfg.Workers,
 		MaxQueued:  cfg.MaxQueued,
@@ -121,6 +124,7 @@ func main() {
 			if err := hist.Add(rec); err != nil {
 				logger.Warn("recording history", "err", err)
 			}
+			saved.Finished(j)
 		},
 	})
 	defer queue.Close()
@@ -134,6 +138,15 @@ func main() {
 	}
 	defer store.Close()
 	run = runner.New(mgr, queue, perms, store, cfg.ApprovalTimeout)
+	scriptStore, err := scripts.OpenStore(cfg.ScriptsFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	saved = scripts.NewManager(scriptStore, run.SubmitSpec, queue.Get, logger)
+	// Scheduled scripts run while Nexora runs, window or not. The delay lets
+	// extensions start before a missed run is caught up.
+	saved.Start(30 * time.Second)
+	defer saved.Close()
 
 	var (
 		gateway *network.Gateway
@@ -150,7 +163,7 @@ func main() {
 			log.Fatal(err)
 		}
 		guard.EnableOAuth(oauth)
-		srv := mcp.NewServer(run, mcp.Options{InlineWait: cfg.MCPInlineWait})
+		srv := mcp.NewServer(run, mcp.Options{InlineWait: cfg.MCPInlineWait, Scripts: saved})
 		handler := mcp.AccessLog(mcp.NewHandler(srv, guard), guard, filepath.Join(cfg.DataDir, "mcp-access.log"))
 		httpSrv, err := mcp.Listen(cfg.MCPAddr, handler, logger)
 		if err != nil {
@@ -190,6 +203,7 @@ func main() {
 		application.NewService(services.NewCodeModeService(run)),
 		application.NewService(services.NewStorageService(store)),
 		application.NewService(services.NewHistoryService(hist, run)),
+		application.NewService(services.NewScriptsService(saved)),
 		application.NewService(services.NewConnectService(baseURL, connectGuard(guard, baseURL), connectOAuth(oauth, baseURL))),
 		application.NewService(services.NewNetworkService(gateway, tokenOf(guard))),
 	} {

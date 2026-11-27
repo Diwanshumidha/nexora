@@ -15,6 +15,7 @@ import (
 	"nexora/internal/jobs"
 	"nexora/internal/permissions"
 	"nexora/internal/protocol"
+	"nexora/internal/scripts"
 )
 
 type Runner struct {
@@ -101,17 +102,23 @@ func (r *Runner) API() string {
 
 // Sources of a run, recorded in history.
 const (
-	SourceApp = "app" // the desktop UI
-	SourceMCP = "mcp" // an external AI client
+	SourceApp      = "app"                  // the desktop UI
+	SourceMCP      = "mcp"                  // an external AI client
+	SourceSchedule = scripts.SourceSchedule // a saved script's schedule
 )
 
 // Submit enqueues a script. The job's Result is a *codemode.Result.
 func (r *Runner) Submit(code, source string) (jobs.Job, error) {
-	spec := jobs.Spec{Label: "run_code", Source: source, Input: code}
+	return r.SubmitSpec(jobs.Spec{Label: "run_code", Source: source, Input: code})
+}
+
+// SubmitSpec enqueues spec.Input as a script, with spec.Args as its global
+// `args`. Saved scripts use it to carry their arguments and identity.
+func (r *Runner) SubmitSpec(spec jobs.Spec) (jobs.Job, error) {
 	return r.queue.Submit(spec, func(ctx context.Context) (any, error) {
 		// The result is kept even on failure: its logs are often how the AI
 		// debugs a script.
-		res, err := r.rt.Run(ctx, code, r.namespaces())
+		res, err := r.rt.RunWithArgs(ctx, spec.Input, r.namespaces(), spec.Args)
 		return res, err
 	})
 }

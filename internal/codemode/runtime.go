@@ -124,6 +124,12 @@ type run struct {
 // the script settles; tool calls still in flight at that point are
 // cancelled.
 func (r *Runtime) Run(ctx context.Context, code string, namespaces []Namespace) (*Result, error) {
+	return r.RunWithArgs(ctx, code, namespaces, nil)
+}
+
+// RunWithArgs is Run with a JSON object exposed to the script as the global
+// `args` (saved scripts' parameters). Nil or empty args give `{}`.
+func (r *Runtime) RunWithArgs(ctx context.Context, code string, namespaces []Namespace, args json.RawMessage) (*Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.opts.Timeout)
 	defer cancel()
 
@@ -142,6 +148,9 @@ func (r *Runtime) Run(ctx context.Context, code string, namespaces []Namespace) 
 	defer stop()
 
 	if err := x.setup(namespaces); err != nil {
+		return nil, err
+	}
+	if err := x.installArgs(args); err != nil {
 		return nil, err
 	}
 
@@ -206,6 +215,18 @@ func (x *run) setup(namespaces []Namespace) error {
 		return err
 	}
 	return x.installTools(namespaces)
+}
+
+// installArgs sets the global `args` to a JS copy of the JSON object raw.
+func (x *run) installArgs(raw json.RawMessage) error {
+	if len(raw) == 0 || string(raw) == "null" {
+		raw = json.RawMessage("{}")
+	}
+	v, err := x.fromJSON(raw)
+	if err != nil {
+		return fmt.Errorf("invalid script arguments: %w", err)
+	}
+	return x.vm.Set("args", v)
 }
 
 func (x *run) installConsole() error {

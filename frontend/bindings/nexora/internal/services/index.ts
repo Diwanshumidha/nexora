@@ -10,6 +10,7 @@ import * as NetworkService from "./networkservice.js";
 import * as PerfProbe from "./perfprobe.js";
 import * as PermissionsService from "./permissionsservice.js";
 import * as RuntimeService from "./runtimeservice.js";
+import * as ScriptsService from "./scriptsservice.js";
 import * as SetupService from "./setupservice.js";
 import * as StorageService from "./storageservice.js";
 import * as UpdateService from "./updateservice.js";
@@ -23,6 +24,7 @@ export {
     PerfProbe,
     PermissionsService,
     RuntimeService,
+    ScriptsService,
     SetupService,
     StorageService,
     UpdateService
@@ -34,6 +36,7 @@ export type {
     ConnectInfo,
     ExtensionPermissions,
     NetworkEndpoint,
+    ScriptInput,
     SettingsView,
     StorageEntry,
     StorageView,

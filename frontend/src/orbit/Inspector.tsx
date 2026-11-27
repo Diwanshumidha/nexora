@@ -23,6 +23,7 @@ import {
   type QueueStats,
 } from "../lib/api";
 import { timeAgo, useLive, useRun } from "../lib/useLive";
+import { askingWho, sourceIcon, sourceShort } from "../lib/source";
 import { Icon, Logo, iconFor, type IconName } from "./icons";
 import { RunDetail } from "../components/RunDetail";
 import { SettingsForm } from "../components/SettingsForm";
@@ -162,7 +163,7 @@ function CorePanel({ connect, stats, network, extensions, history, approvals, on
                 <button className="row row-button" onClick={() => onSelect({ kind: "approval", id: a.id })}>
                   <StateDot state="queued" />
                   <span className="mono">{a.namespace}.{a.tool}()</span>
-                  <span className="row-desc">{a.source === "mcp" ? "AI" : "You"}</span>
+                  <span className="row-desc">{sourceShort(a.source)}</span>
                 </button>
               </li>
             ))}
@@ -717,7 +718,7 @@ function ExtensionPanel({ e, history, updates, refresh, onSelect }: Props & { e:
               <li key={h.id}>
                 <button className="row row-button" onClick={() => onSelect({ kind: "history", id: h.id })}>
                   <StateDot state={h.state} />
-                  <span>{h.source === "mcp" ? "AI" : "You"}</span>
+                  <span>{sourceShort(h.source)}</span>
                   <span className="mono row-desc">{(h.tools ?? []).filter((t) => t.startsWith(ns + ".")).join(", ")}</span>
                   <span className="muted">{timeAgo(h.createdAt)}</span>
                 </button>
@@ -893,8 +894,8 @@ function ApprovalPanel({ a, approvals, history, onSelect, refresh }: Props & { a
   return (
     <>
       <div className="insp-kicker">APPROVAL NEEDED</div>
-      <Head icon={a.source === "mcp" ? "ai" : "user"} title={`${a.namespace}.${a.tool}()`}
-        sub={`${a.source === "mcp" ? "an AI via MCP" : "a script you ran"} · ${left}s left`} tone="pending" />
+      <Head icon={sourceIcon(a.source)} title={`${a.namespace}.${a.tool}()`}
+        sub={`${askingWho(a.source, a.scriptName)} · ${left}s left`} tone="pending" />
       <p className="insp-desc">
         {a.description || "This tool may change something."} The script is paused until you decide.
       </p>

@@ -15,9 +15,11 @@ interface Props {
   onReview: (approvalId: string) => void;
   onOpenExtension: (namespace: string) => void;
   onOpenRun: (id: string) => void;
+  /** Opens the Scripts page with this code as a new saved script. */
+  onSaveAsScript: (code: string) => void;
 }
 
-export default function PlaygroundPage({ draft, onDraftTaken, approvals, onReview, onOpenExtension, onOpenRun }: Props) {
+export default function PlaygroundPage({ draft, onDraftTaken, approvals, onReview, onOpenExtension, onOpenRun, onSaveAsScript }: Props) {
   const [extensions] = useLive(async () => (await Extensions.List()) ?? [], 4000, [] as ExtensionInfo[]);
   const [types, refreshTypes] = useLive(() => CodeMode.Types(), 4000, "");
   const [code, setCode] = useState<string>(() => readDraft() ?? "");
@@ -126,6 +128,7 @@ export default function PlaygroundPage({ draft, onDraftTaken, approvals, onRevie
             <h3>Script</h3>
             <div className="pane-actions">
               <button className="link-btn" onClick={() => setCode(sampleFor(extensions))}>Load sample</button>
+              <button className="link-btn" disabled={!code.trim()} onClick={() => onSaveAsScript(code)}>Save as script</button>
               {!side && <button className="link-btn" onClick={() => setSide("api")}>Show API</button>}
             </div>
           </div>

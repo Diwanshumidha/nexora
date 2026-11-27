@@ -13,9 +13,14 @@ export interface Approval {
     "jobId"?: string;
 
     /**
-     * who ran the script: "app" or "mcp"
+     * who ran the script: "app", "mcp" or "schedule"
      */
     "source"?: string;
+
+    /**
+     * the saved script asking, if any
+     */
+    "scriptName"?: string;
     "extensionId": string;
     "namespace": string;
     "tool": string;
