@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"nexora/internal/config"
 	"nexora/internal/extension"
@@ -42,6 +43,14 @@ func (c client) bad(want, tool string, args any) {
 // builtin starts one of the nexora-extensions repo's extensions in its real sandbox.
 func builtin(t *testing.T, id string, settings extension.Values) client {
 	t.Helper()
+	c, _, _ := builtinEnv(t, id, settings)
+	return c
+}
+
+// builtinEnv is builtin that also returns the manager and the extension's
+// private data folder.
+func builtinEnv(t *testing.T, id string, settings extension.Values) (client, *extension.Manager, string) {
+	t.Helper()
 	exts := extensionsDir()
 	if _, err := os.Stat(filepath.Join(exts, id, "dist/index.js")); err != nil {
 		t.Skipf("%s extension not built; run `pnpm build` in nexora-extensions", id)
@@ -68,7 +77,7 @@ func builtin(t *testing.T, id string, settings extension.Values) client {
 	return client{t: t, call: func(tool string, args any) (json.RawMessage, error) {
 		raw, _ := json.Marshal(args)
 		return mgr.CallTool(ctx, id, tool, raw)
-	}}
+	}}, mgr, filepath.Join(cfg.ExtensionDataDir, id)
 }
 
 type obj = map[string]any
@@ -150,6 +159,101 @@ func TestFilesExtension(t *testing.T) {
 	f.bad("trusted folder itself", "delete", obj{"path": trusted})
 	if _, err := os.Stat(filepath.Join(outside, "report.md")); err == nil {
 		t.Fatal("nothing may be written outside the trusted folders")
+	}
+}
+
+func TestFilesTrashCleanup(t *testing.T) {
+	trusted := t.TempDir()
+	settings := extension.Values{"folders": []any{trusted}, "trashDays": 30, "trashMaxMB": 0}
+	f, mgr, data := builtinEnv(t, "files", settings)
+	ctx := context.Background()
+
+	type item struct {
+		ID, Name, ExpiresAt string
+		Size                int64
+	}
+	list := func() map[string]item {
+		t.Helper()
+		var items []item
+		must(t, json.Unmarshal(f.do("listTrash", nil), &items))
+		out := map[string]item{}
+		for _, it := range items {
+			out[it.Name] = it
+		}
+		return out
+	}
+	trash := func(name string, size int) {
+		t.Helper()
+		must(t, os.WriteFile(filepath.Join(trusted, name), make([]byte, size), 0o644))
+		f.do("delete", obj{"path": name})
+	}
+	// backdate pretends an item was trashed days ago.
+	backdate := func(name string, days int) {
+		t.Helper()
+		metaPath := filepath.Join(data, "trash", list()[name].ID, "meta.json")
+		raw, err := os.ReadFile(metaPath)
+		must(t, err)
+		var meta map[string]any
+		must(t, json.Unmarshal(raw, &meta))
+		meta["deletedAt"] = time.Now().Add(-time.Duration(days) * 24 * time.Hour).UTC().Format(time.RFC3339Nano)
+		raw, _ = json.Marshal(meta)
+		must(t, os.WriteFile(metaPath, raw, 0o600))
+	}
+	// eventually waits for the extension's cleanup, which runs after a
+	// settings change without the host waiting for it.
+	eventually := func(what string, ok func(map[string]item) bool) {
+		t.Helper()
+		for start := time.Now(); time.Since(start) < 5*time.Second; time.Sleep(50 * time.Millisecond) {
+			if ok(list()) {
+				return
+			}
+		}
+		t.Fatalf("%s: trash is %+v", what, list())
+	}
+	setSettings := func(kv ...any) {
+		t.Helper()
+		for i := 0; i < len(kv); i += 2 {
+			settings[kv[i].(string)] = kv[i+1]
+		}
+		_, err := mgr.SetSettings(ctx, "files", settings)
+		must(t, err)
+	}
+
+	trash("a.txt", 1000)
+	trash("b.txt", 1000)
+	trash("c.txt", 1000)
+	items := list()
+	if len(items) != 3 || items["a.txt"].Size != 1000 || items["a.txt"].ExpiresAt == "" {
+		t.Fatalf("trash: %+v", items)
+	}
+
+	// emptyTrash can keep recent items.
+	backdate("a.txt", 40)
+	if out := f.do("emptyTrash", obj{"olderThanDays": 35}); !strings.Contains(string(out), `"removed":1`) {
+		t.Fatalf("emptyTrash: %s", out)
+	}
+	if _, ok := list()["a.txt"]; ok {
+		t.Fatal("old item kept")
+	}
+
+	// Expired items are deleted by the cleanup, here run by a settings change.
+	backdate("b.txt", 25)
+	setSettings("trashDays", 20)
+	eventually("expiry", func(m map[string]item) bool { _, b := m["b.txt"]; _, c := m["c.txt"]; return !b && c })
+
+	// Over the size limit: oldest first, but never the newest item.
+	trash("big.bin", 2<<20)
+	trash("new.txt", 10)
+	setSettings("trashMaxMB", 1)
+	eventually("size limit", func(m map[string]item) bool { _, big := m["big.bin"]; _, n := m["new.txt"]; return !big && n })
+	trash("huge.bin", 3<<20)
+	setSettings("trashMaxMB", 2)
+	eventually("newest kept", func(m map[string]item) bool { _, h := m["huge.bin"]; return h && len(m) == 1 })
+
+	// 0 keeps items until the trash is emptied.
+	setSettings("trashDays", 0, "trashMaxMB", 0)
+	if it := list()["huge.bin"]; it.ExpiresAt != "" {
+		t.Fatalf("expiresAt with trashDays 0: %+v", it)
 	}
 }
 
